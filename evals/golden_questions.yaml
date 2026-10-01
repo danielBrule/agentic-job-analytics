@@ -1,0 +1,379 @@
+version: 3
+
+description: >
+  Golden evaluation questions for Agentic Job Analytics.
+  The evaluation contract is capability-based rather than route-based.
+  Structured and semantic retrieval may execute sequentially or in parallel.
+
+architecture_contract:
+  authoritative_store: sqlite
+  semantic_index: vector_db
+  semantic_index_is_derived: true
+  agent_source_access: read_only
+
+capabilities:
+  - structured_query
+  - semantic_retrieval
+  - synthesis
+  - clarification
+  - conversation_context
+  - refusal
+
+notes:
+  - SQL is authoritative for explicit structured facts, filters, aggregations and rankings.
+  - Semantic retrieval uses the derived vector index for conceptual or similarity-based criteria.
+  - Semantic retrieval should return source identifiers and evidence, not replace the relational source of truth.
+  - Synthesis is used for qualitative interpretation, comparison or evidence combination.
+  - Simple structured questions do not require LLM synthesis.
+  - Generated SQL must remain read-only.
+  - Execution order is intentionally not prescribed unless required by the use case.
+  - Ambiguous concepts such as "good fit" should eventually be defined explicitly or clarified.
+
+questions:
+
+  # ---------------------------------------------------------------------------
+  # Structured analytics
+  # ---------------------------------------------------------------------------
+
+  - id: q01
+    category: structured_analytics
+    question: "Combien de candidatures ai-je ajoutées par mois et par pays ?"
+    expected_capabilities: [structured_query]
+    expected_structured_sources:
+      tables: [jobs]
+      fields: [date_added, location]
+    expected_behavior: aggregate
+    expected_result_characteristics: [group_by_month, group_by_location]
+
+  - id: q02
+    category: structured_analytics
+    question: "Quel est le fit_score moyen par famille de rôle ?"
+    expected_capabilities: [structured_query]
+    expected_structured_sources:
+      tables: [assessments]
+      fields: [primary_role_family, fit_score]
+    expected_behavior: aggregate
+    expected_result_characteristics: [group_by_primary_role_family, average_fit_score]
+
+  - id: q03
+    category: structured_analytics
+    question: "Quelles familles de rôles ont le priority_score moyen le plus élevé ?"
+    expected_capabilities: [structured_query]
+    expected_structured_sources:
+      tables: [assessments]
+      fields: [primary_role_family, priority_score]
+    expected_behavior: aggregate_rank
+    expected_result_characteristics: [group_by_primary_role_family, average_priority_score, descending_ranking]
+
+  - id: q04
+    category: structured_analytics
+    question: "Quels rôles ont un tech_bar_fit supérieur ou égal à 8 mais un seniority_fit inférieur ou égal à 5 ?"
+    expected_capabilities: [structured_query]
+    expected_structured_sources:
+      tables: [jobs, assessments]
+      fields: [company, job_title, tech_bar_fit, seniority_fit]
+    expected_behavior: filter
+    expected_constraints:
+      - tech_bar_fit >= 8
+      - seniority_fit <= 5
+
+  - id: q05
+    category: structured_analytics
+    question: "Quels postes ai-je décidé de ne pas poursuivre malgré un fit_score supérieur ou égal à 8 ?"
+    expected_capabilities: [structured_query]
+    expected_structured_sources:
+      tables: [jobs, assessments]
+      fields: [company, job_title, user_decision, fit_score]
+    expected_behavior: filter
+    expected_constraints:
+      - user_decision == DO_NOT_PURSUE
+      - fit_score >= 8
+
+  - id: q06
+    category: structured_analytics
+    question: "Quels jobs ont une next_action_date passée et ne sont pas clôturés ?"
+    expected_capabilities: [structured_query]
+    expected_structured_sources:
+      tables: [jobs]
+      fields: [company, job_title, application_status, next_action, next_action_date, closure_reason]
+    expected_behavior: filter
+    notes:
+      - The exact definition of a closed application should be normalized in the data model.
+
+
+  # ---------------------------------------------------------------------------
+  # Structured data with qualitative / JSON analysis
+  # ---------------------------------------------------------------------------
+
+  - id: q07
+    category: qualitative_analysis
+    question: "Quels red flags reviennent le plus souvent dans mes assessments ?"
+    expected_capabilities: [structured_query, synthesis]
+    expected_structured_sources:
+      tables: [assessments]
+      fields: [red_flags]
+    expected_behavior: qualitative_aggregate
+
+  - id: q08
+    category: qualitative_analysis
+    question: "Quels risques de soutenabilité reviennent le plus souvent dans les postes avec un fit_score supérieur ou égal à 8 ?"
+    expected_capabilities: [structured_query, synthesis]
+    expected_structured_sources:
+      tables: [assessments]
+      fields: [fit_score, sustainability_risks]
+    expected_behavior: filtered_qualitative_aggregate
+    expected_constraints:
+      - fit_score >= 8
+
+  - id: q09
+    category: qualitative_analysis
+    question: "Quels evidence gaps reviennent le plus souvent sur les rôles proches de Applied AI ou Forward Deployed Engineering ?"
+    expected_capabilities: [semantic_retrieval, structured_query, synthesis]
+    expected_structured_sources:
+      tables: [jobs, assessments]
+      fields: [evidence_gaps, primary_role_family, secondary_role_family]
+    expected_semantic_evidence:
+      fields: [job_description, role_snapshot, real_mandate]
+      concepts: [Applied AI, Forward Deployed Engineering]
+    expected_behavior: semantic_scope_then_qualitative_aggregate
+
+  - id: q10
+    category: qualitative_analysis
+    question: "Sur quelles dimensions du mandat suis-je généralement fort ou faible ?"
+    expected_capabilities: [structured_query, synthesis]
+    expected_structured_sources:
+      tables: [assessments]
+      fields: [material_mandate_dimensions]
+    expected_behavior: qualitative_dimension_analysis
+
+  # ---------------------------------------------------------------------------
+  # Semantic filtering / retrieval
+  # ---------------------------------------------------------------------------
+
+  - id: q11
+    category: semantic_retrieval
+    question: "Trouve les rôles les plus proches d’un Forward Deployed AI Engineer."
+    expected_capabilities: [semantic_retrieval, structured_query, synthesis]
+    expected_structured_sources:
+      tables: [jobs, assessments]
+      fields: [company, job_title]
+    expected_semantic_evidence:
+      fields: [job_description, role_snapshot, real_mandate]
+      concepts: [Forward Deployed AI Engineer]
+    expected_behavior: semantic_rank
+
+  - id: q12
+    category: semantic_retrieval
+    question: "Quels rôles demandaient de construire une solution de discovery jusqu’à production ?"
+    expected_capabilities: [semantic_retrieval, structured_query, synthesis]
+    expected_structured_sources:
+      tables: [jobs, assessments]
+      fields: [company, job_title]
+    expected_semantic_evidence:
+      fields: [job_description, real_mandate]
+      concepts: [discovery, implementation, production ownership]
+    expected_behavior: semantic_filter
+
+  - id: q13
+    category: semantic_retrieval
+    question: "Quels postes étaient très hands-on mais avec peu de management hiérarchique ?"
+    expected_capabilities: [semantic_retrieval, structured_query, synthesis]
+    expected_structured_sources:
+      tables: [jobs, assessments]
+      fields: [company, job_title]
+    expected_semantic_evidence:
+      fields: [job_description, role_snapshot, real_mandate]
+      concepts: [hands-on, limited line management]
+    expected_behavior: semantic_filter
+
+  - id: q14
+    category: semantic_retrieval
+    question: "Quels rôles avaient une forte composante GenAI ou agentic sans être des rôles de recherche ?"
+    expected_capabilities: [semantic_retrieval, structured_query, synthesis]
+    expected_structured_sources:
+      tables: [jobs, assessments]
+      fields: [company, job_title]
+    expected_semantic_evidence:
+      fields: [job_description, role_snapshot, real_mandate]
+      concepts: [Generative AI, agentic systems, non-research delivery]
+    expected_behavior: semantic_filter
+
+  - id: q15
+    category: semantic_retrieval
+    question: "Quels rôles ressemblaient le plus à un Head of Data & AI orienté transformation plutôt qu’exploitation ?"
+    expected_capabilities: [semantic_retrieval, structured_query, synthesis]
+    expected_structured_sources:
+      tables: [jobs, assessments]
+      fields: [company, job_title]
+    expected_semantic_evidence:
+      fields: [job_description, role_snapshot, real_mandate]
+      concepts: [Data and AI leadership, transformation, limited operational run ownership]
+    expected_behavior: semantic_rank
+
+  # ---------------------------------------------------------------------------
+  # Multi-capability questions
+  # ---------------------------------------------------------------------------
+
+  - id: q16
+    category: multi_capability
+    question: "Parmi les rôles similaires à FDE, lesquels avaient les meilleurs fit_score et seniority_fit ?"
+    expected_capabilities: [semantic_retrieval, structured_query, synthesis]
+    expected_structured_sources:
+      tables: [jobs, assessments]
+      fields: [company, job_title, fit_score, seniority_fit]
+    expected_semantic_evidence:
+      fields: [job_description, role_snapshot, real_mandate]
+      concepts: [Forward Deployed Engineering]
+    expected_behavior: semantic_scope_plus_structured_rank
+
+  - id: q17
+    category: multi_capability
+    question: "Quels rôles similaires à ceux classés GO présentent moins de risques de soutenabilité ?"
+    expected_capabilities: [structured_query, semantic_retrieval, synthesis]
+    expected_structured_sources:
+      tables: [jobs, assessments]
+      fields: [decision, sustainability_risks, company, job_title]
+    expected_semantic_evidence:
+      fields: [job_description, role_snapshot, real_mandate]
+    expected_behavior: structured_seed_plus_semantic_comparison
+
+  - id: q18
+    category: multi_capability
+    question: "Quels rôles ressemblent aux postes pour lesquels j’ai eu des entretiens, mais avec une meilleure adéquation de séniorité ?"
+    expected_capabilities: [structured_query, semantic_retrieval, synthesis]
+    expected_structured_sources:
+      tables: [jobs, assessments]
+      fields: [application_status, seniority_fit, company, job_title]
+    expected_semantic_evidence:
+      fields: [job_description, role_snapshot, real_mandate]
+    expected_behavior: structured_seed_plus_semantic_comparison
+    notes:
+      - Interview stage should eventually be normalized instead of inferred from free-text status.
+
+  - id: q19
+    category: multi_capability
+    question: "Quels rôles proches de mon profil technique ont été classés NO_GO, et pour quelles raisons non techniques ?"
+    expected_capabilities: [semantic_retrieval, structured_query, synthesis]
+    expected_structured_sources:
+      tables: [jobs, assessments]
+      fields: [decision, decision_reason, tech_bar_fit, company, job_title, red_flags, sustainability_risks]
+    expected_semantic_evidence:
+      fields: [job_description, role_snapshot, real_mandate]
+      concepts: [technical profile similarity]
+    expected_behavior: semantic_scope_plus_structured_explanation
+
+  - id: q20
+    category: multi_capability
+    question: "Quels rôles similaires aux opportunités avec fit_score supérieur ou égal à 8 et priority_score supérieur ou égal à 8 sont basés en France ?"
+    expected_capabilities: [structured_query, semantic_retrieval, synthesis]
+    expected_structured_sources:
+      tables: [jobs, assessments]
+      fields: [location, fit_score, priority_score, company, job_title]
+    expected_semantic_evidence:
+      fields: [job_description, role_snapshot, real_mandate]
+    expected_behavior: structured_seed_plus_semantic_filter
+    expected_constraints:
+      - seed_fit_score >= 8
+      - seed_priority_score >= 8
+      - result_location == FR
+  # ---------------------------------------------------------------------------
+  # LLMOps / MLOps
+  # ---------------------------------------------------------------------------
+
+  - id: q21
+    category: llmops
+    question: "Quel est le nombre moyen de tokens consommés par assessment et par modèle ?"
+    expected_capabilities: [structured_query]
+    expected_structured_sources:
+      tables: [llm_calls]
+      fields: [operation, resolved_model, total_tokens, job_id]
+    expected_behavior: aggregate
+    expected_constraints:
+      - operation == ASSESSMENT
+
+  - id: q22
+    category: llmops
+    question: "Quels pipeline steps consomment le plus de tokens et de temps ?"
+    expected_capabilities: [structured_query]
+    expected_structured_sources:
+      tables: [llm_calls]
+      fields: [pipeline_step, total_tokens, duration_seconds]
+    expected_behavior: aggregate_rank
+
+  - id: q23
+    category: llmops
+    question: "Quels modèles présentent les compromis les plus intéressants entre taux de succès, latence et consommation de tokens ?"
+    expected_capabilities: [structured_query, synthesis]
+    expected_structured_sources:
+      tables: [llm_calls]
+      fields: [resolved_model, status, duration_seconds, total_tokens]
+    expected_behavior: multi_metric_tradeoff
+    notes:
+      - Do not invent a universal composite score unless an explicit scoring rule exists.
+      - Present trade-offs rather than forcing a single winner.
+
+  - id: q24
+    category: llmops
+    question: "Où observe-t-on le plus de retries ou de failures, et quelles sont les principales catégories d’erreur ?"
+    expected_capabilities: [structured_query, synthesis]
+    expected_structured_sources:
+      tables: [llm_calls]
+      fields: [pipeline_step, retry_number, status, failure_category]
+    expected_behavior: aggregate_failure_analysis
+
+  - id: q25
+    category: llmops
+    question: "Pour les appels ASSESSMENT, comment le taux d’échec et la latence ont-ils évolué entre les deux dernières versions de prompt enregistrées ?"
+    expected_capabilities: [structured_query, synthesis]
+    expected_structured_sources:
+      tables: [llm_calls, assessments]
+      fields: [operation, version_metadata, prompt_version, status, duration_seconds]
+    expected_behavior: version_comparison
+    expected_constraints:
+      - operation == ASSESSMENT
+      - compare_latest_two_prompt_versions
+
+  - id: q26
+    category: llmops
+    question: "Quelles familles de rôles génèrent les appels LLM les plus coûteux en tokens ou les plus lents ?"
+    expected_capabilities: [structured_query, synthesis]
+    expected_structured_sources:
+      tables: [jobs, assessments, llm_calls]
+      fields: [primary_role_family, total_tokens, duration_seconds, job_id]
+    expected_behavior: joined_usage_analysis
+
+  # ---------------------------------------------------------------------------
+  # Robustness / conversational behaviour
+  # ---------------------------------------------------------------------------
+
+  - id: q27
+    category: robustness
+    question: "Quel temps fera-t-il demain à Paris ?"
+    expected_capabilities: [refusal]
+    expected_behavior: out_of_scope
+    must_not: [execute_sql, perform_semantic_retrieval]
+
+  - id: q28
+    category: robustness
+    question: "Supprime toutes mes candidatures rejetées."
+    expected_capabilities: [refusal]
+    expected_behavior: refuse_write
+    must_not: [execute_write_sql, modify_source_database, modify_vector_index]
+
+  - id: q29
+    category: robustness
+    question: "Et uniquement en France ?"
+    expected_capabilities: [conversation_context]
+    expected_structured_sources:
+      tables: [jobs]
+      fields: [location]
+    expected_behavior: contextual_follow_up
+    notes:
+      - This case requires a previous question whose result can be filtered by location.
+
+  - id: q30
+    category: robustness
+    question: "Quels sont les meilleurs rôles ?"
+    expected_capabilities: [clarification]
+    expected_behavior: ask_clarification
+    clarification_should_cover: [fit_score, priority_score, interview_probability, seniority_fit, sustainability]

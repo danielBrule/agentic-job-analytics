@@ -1,0 +1,982 @@
+version: 2
+
+description: >
+  Behavioural test cases for the SQLite-to-vector indexing pipeline.
+  The vector index is a derived searchable projection of canonical
+  SQLite data. Semantic indexing operates at semantic-unit level:
+  one unit per scalar semantic field, one unit per list item, and
+  multiple chunks for long-form job descriptions.
+
+indexing_policy:
+
+  scalar_fields:
+    - role_snapshot
+    - real_mandate
+    - technical_bar
+    - decision_reason
+
+  list_fields:
+    - strong_fit_signals
+    - red_flags
+    - sustainability_risks
+    - evidence_gaps
+    - evidence_anchors
+
+  chunked_fields:
+    - job_description
+
+  required_metadata:
+    - semantic_unit_id
+    - job_id
+    - field_name
+    - unit_type
+    - content_hash
+    - source_version
+    - is_deleted
+    - embedding_model
+    - embedding_version
+    - index_schema_version
+
+  assessment_metadata:
+    - assessment_id
+
+  optional_unit_metadata:
+    - unit_position
+
+  searchable_defaults:
+    is_deleted: false
+
+  unit_types:
+    scalar: scalar
+    list_item: list_item
+    chunk: chunk
+
+  identity:
+    scalar: >
+      Stable identity derived from job_id, assessment_id and field_name.
+
+    list_item: >
+      Stable identity derived from job_id, assessment_id, field_name
+      and normalized item content. Item position must not be the sole
+      identity because list reordering should not trigger unnecessary
+      re-embedding.
+
+    chunk: >
+      Identity must distinguish chunks belonging to the same job and
+      field while allowing the chunking implementation to evolve.
+
+  normalization:
+    trim_whitespace: true
+    normalize_repeated_whitespace: true
+    skip_empty_content: true
+    parse_list_fields: true
+    embed_serialized_list: false
+
+  versioning:
+    source_version: true
+    embedding_version: true
+    index_schema_version: true
+
+  deletion:
+    propagate_job_is_deleted: true
+    exclude_deleted_from_default_search: true
+
+  incremental_indexing:
+    enabled: true
+    compare_content_hash: true
+    avoid_reembedding_unchanged_units: true
+
+
+cases:
+
+  # ---------------------------------------------------------------------------
+  # New records
+  # ---------------------------------------------------------------------------
+
+  - id: new_job_scalar_fields
+    description: >
+      A newly indexed assessment creates one semantic unit for each
+      populated scalar semantic field.
+
+    source:
+      job_id: job_001
+      assessment_id: assessment_001
+      source_version: 1
+      is_deleted: false
+
+      role_snapshot: >
+        Senior applied AI leadership role combining technical delivery
+        and client engagement.
+
+      real_mandate: >
+        Build the initial capability and personally lead the first
+        strategic client engagements.
+
+      technical_bar: >
+        Strong Python, data engineering and production GenAI experience.
+
+      decision_reason: >
+        Strong fit because the role combines delivery leadership with
+        hands-on technical ownership.
+
+    expected:
+      semantic_units:
+        - field_name: role_snapshot
+          unit_type: scalar
+          count: 1
+
+        - field_name: real_mandate
+          unit_type: scalar
+          count: 1
+
+        - field_name: technical_bar
+          unit_type: scalar
+          count: 1
+
+        - field_name: decision_reason
+          unit_type: scalar
+          count: 1
+
+      total_units: 4
+
+      all_units:
+        job_id: job_001
+        assessment_id: assessment_001
+        source_version: 1
+        is_deleted: false
+
+
+  - id: new_job_list_field
+    description: >
+      Every meaningful list item becomes its own semantic unit.
+
+    source:
+      job_id: job_002
+      assessment_id: assessment_002
+      source_version: 1
+      is_deleted: false
+
+      red_flags:
+        - Heavy executive stakeholder exposure.
+        - Travel expectations appear higher than stated in the title.
+        - Significant business-development responsibility.
+
+    expected:
+      field_name: red_flags
+      unit_type: list_item
+      total_units: 3
+
+      contents:
+        - Heavy executive stakeholder exposure.
+        - Travel expectations appear higher than stated in the title.
+        - Significant business-development responsibility.
+
+      all_units:
+        job_id: job_002
+        assessment_id: assessment_002
+        is_deleted: false
+
+
+  - id: list_fields_are_not_aggregated
+    description: >
+      Separate list items must not be concatenated into one embedding.
+
+    source:
+      job_id: job_003
+      assessment_id: assessment_003
+      source_version: 1
+
+      sustainability_risks:
+        - Frequent international travel.
+        - Several concurrent client engagements.
+        - High level of day-to-day executive interaction.
+
+    expected:
+      semantic_units: 3
+
+      forbidden:
+        aggregated_semantic_unit: true
+
+
+  # ---------------------------------------------------------------------------
+  # Scalar versus list semantics
+  # ---------------------------------------------------------------------------
+
+  - id: scalar_field_remains_single_unit
+    description: >
+      A scalar semantic field is indexed as one unit even when it
+      contains several sentences.
+
+    source:
+      job_id: job_004
+      assessment_id: assessment_004
+      source_version: 1
+
+      real_mandate: >
+        The formal role is positioned as strategy leadership. In
+        practice the successful candidate would build the delivery
+        team, define architecture and lead the first implementations.
+
+    expected:
+      field_name: real_mandate
+      unit_type: scalar
+      total_units: 1
+
+
+  - id: multiple_list_fields_remain_distinct
+    description: >
+      Items belonging to different assessment dimensions retain their
+      original field identity.
+
+    source:
+      job_id: job_005
+      assessment_id: assessment_005
+      source_version: 1
+
+      strong_fit_signals:
+        - Experience building data engineering teams.
+        - Strong Azure delivery experience.
+
+      red_flags:
+        - Significant sales target.
+
+      sustainability_risks:
+        - Travel may exceed forty percent.
+
+    expected:
+      semantic_units:
+        strong_fit_signals: 2
+        red_flags: 1
+        sustainability_risks: 1
+
+      total_units: 4
+
+      preserve_field_name: true
+
+
+  # ---------------------------------------------------------------------------
+  # Empty data
+  # ---------------------------------------------------------------------------
+
+  - id: null_scalar_not_indexed
+    description: Null scalar values must not generate semantic units.
+
+    source:
+      job_id: job_006
+      assessment_id: assessment_006
+      source_version: 1
+
+      role_snapshot: null
+
+    expected:
+      field_name: role_snapshot
+      total_units: 0
+
+
+  - id: empty_scalar_not_indexed
+    description: Empty or whitespace-only scalar values are ignored.
+
+    source:
+      job_id: job_007
+      assessment_id: assessment_007
+      source_version: 1
+
+      technical_bar: "   "
+
+    expected:
+      field_name: technical_bar
+      total_units: 0
+
+
+  - id: empty_list_not_indexed
+    description: Empty lists create no semantic units.
+
+    source:
+      job_id: job_008
+      assessment_id: assessment_008
+      source_version: 1
+
+      evidence_gaps: []
+
+    expected:
+      field_name: evidence_gaps
+      total_units: 0
+
+
+  - id: empty_list_items_are_ignored
+    description: >
+      Null and whitespace-only list items are ignored while meaningful
+      entries remain independently indexed.
+
+    source:
+      job_id: job_009
+      assessment_id: assessment_009
+      source_version: 1
+
+      red_flags:
+        - Heavy travel.
+        - ""
+        - null
+        - "   "
+        - Significant sales responsibility.
+
+    expected:
+      field_name: red_flags
+      total_units: 2
+
+      contents:
+        - Heavy travel.
+        - Significant sales responsibility.
+
+
+  # ---------------------------------------------------------------------------
+  # List parsing
+  # ---------------------------------------------------------------------------
+
+  - id: serialized_list_is_parsed_before_embedding
+    description: >
+      A serialized list stored in SQLite is parsed before semantic-unit
+      generation. The serialized representation itself is never embedded.
+
+    source:
+      job_id: job_010
+      assessment_id: assessment_010
+      source_version: 1
+
+      strong_fit_signals: >
+        ["Strong Python experience", "Built data engineering teams"]
+
+    expected:
+      field_name: strong_fit_signals
+      unit_type: list_item
+      total_units: 2
+
+      contents:
+        - Strong Python experience
+        - Built data engineering teams
+
+      forbidden_content:
+        - '["Strong Python experience", "Built data engineering teams"]'
+
+
+  # ---------------------------------------------------------------------------
+  # Normalisation
+  # ---------------------------------------------------------------------------
+
+  - id: whitespace_normalisation
+    description: >
+      Irrelevant whitespace changes must not cause unnecessary
+      re-embedding.
+
+    existing:
+      job_id: job_011
+      assessment_id: assessment_011
+
+      role_snapshot: >
+        Applied AI role combining technical delivery and leadership.
+
+    updated:
+      job_id: job_011
+      assessment_id: assessment_011
+
+      role_snapshot: >
+          Applied   AI role combining technical delivery
+          and leadership.
+
+    expected:
+      normalized_content_equal: true
+      content_hash_equal: true
+      embedding_calls: 0
+
+
+  # ---------------------------------------------------------------------------
+  # Incremental updates
+  # ---------------------------------------------------------------------------
+
+  - id: update_single_scalar_field
+    description: >
+      Changing one scalar semantic field only requires re-embedding that
+      field.
+
+    existing:
+      job_id: job_012
+      assessment_id: assessment_012
+      source_version: 1
+
+      role_snapshot: Senior data and AI delivery role.
+      real_mandate: Build a new consulting capability.
+      technical_bar: Strong Python and cloud architecture.
+      decision_reason: Good combination of technical and leadership work.
+
+    updated:
+      job_id: job_012
+      assessment_id: assessment_012
+      source_version: 2
+
+      role_snapshot: Senior data and AI delivery role.
+      real_mandate: Build and commercialise a new consulting capability.
+      technical_bar: Strong Python and cloud architecture.
+      decision_reason: Good combination of technical and leadership work.
+
+    expected:
+      reembedded_fields:
+        - real_mandate
+
+      not_reembedded_fields:
+        - role_snapshot
+        - technical_bar
+        - decision_reason
+
+      embedding_calls: 1
+
+
+  - id: add_single_list_item
+    description: >
+      Adding one list item creates one new semantic unit without
+      re-embedding existing items.
+
+    existing:
+      job_id: job_013
+      assessment_id: assessment_013
+      source_version: 1
+
+      red_flags:
+        - Heavy travel.
+        - Significant business-development responsibility.
+
+    updated:
+      job_id: job_013
+      assessment_id: assessment_013
+      source_version: 2
+
+      red_flags:
+        - Heavy travel.
+        - Significant business-development responsibility.
+        - High day-to-day executive exposure.
+
+    expected:
+      unchanged_units: 2
+      new_units: 1
+      removed_units: 0
+      embedding_calls: 1
+
+
+  - id: remove_single_list_item
+    description: >
+      Removing a list item removes or deactivates the corresponding
+      searchable semantic unit without re-embedding remaining items.
+
+    existing:
+      job_id: job_014
+      assessment_id: assessment_014
+      source_version: 1
+
+      sustainability_risks:
+        - Heavy travel.
+        - Long working hours.
+        - Multiple concurrent engagements.
+
+    updated:
+      job_id: job_014
+      assessment_id: assessment_014
+      source_version: 2
+
+      sustainability_risks:
+        - Heavy travel.
+        - Multiple concurrent engagements.
+
+    expected:
+      unchanged_units: 2
+      removed_units: 1
+      new_units: 0
+      embedding_calls: 0
+
+      removed_content:
+        - Long working hours.
+
+
+  - id: change_single_list_item
+    description: >
+      Replacing one list item creates the new semantic unit and removes
+      the old one while leaving unrelated items untouched.
+
+    existing:
+      job_id: job_015
+      assessment_id: assessment_015
+      source_version: 1
+
+      evidence_gaps:
+        - Exact team size is unclear.
+        - Travel requirement is unclear.
+
+    updated:
+      job_id: job_015
+      assessment_id: assessment_015
+      source_version: 2
+
+      evidence_gaps:
+        - Exact team size is unclear.
+        - Exact international travel requirement is unclear.
+
+    expected:
+      unchanged_units: 1
+      removed_units: 1
+      new_units: 1
+      embedding_calls: 1
+
+
+  - id: list_reordering_does_not_reembed
+    description: >
+      Reordering list items must not trigger re-embedding because item
+      position is not the semantic identity.
+
+    existing:
+      job_id: job_016
+      assessment_id: assessment_016
+      source_version: 1
+
+      strong_fit_signals:
+        - Strong Azure background.
+        - Consulting experience.
+        - Team-building experience.
+
+    updated:
+      job_id: job_016
+      assessment_id: assessment_016
+      source_version: 2
+
+      strong_fit_signals:
+        - Team-building experience.
+        - Strong Azure background.
+        - Consulting experience.
+
+    expected:
+      semantic_content_changed: false
+      embedding_calls: 0
+      unit_positions_may_change: true
+
+
+  # ---------------------------------------------------------------------------
+  # Duplicate protection
+  # ---------------------------------------------------------------------------
+
+  - id: duplicate_list_items
+    description: >
+      Identical normalized items within the same job, assessment and
+      field should not produce duplicate active semantic units.
+
+    source:
+      job_id: job_017
+      assessment_id: assessment_017
+      source_version: 1
+
+      red_flags:
+        - Heavy travel.
+        - Heavy travel.
+
+    expected:
+      active_semantic_units: 1
+      duplicate_active_units: 0
+
+
+  - id: repeated_indexing_is_idempotent
+    description: >
+      Running the indexer twice against unchanged source data must not
+      create duplicate vectors or additional embedding calls.
+
+    source:
+      job_id: job_018
+      assessment_id: assessment_018
+      source_version: 1
+
+      role_snapshot: Applied AI leadership role.
+
+      red_flags:
+        - Significant travel.
+        - Commercial responsibility.
+
+    execution:
+      indexing_runs: 2
+
+    expected:
+      active_semantic_units: 3
+      duplicate_active_units: 0
+      embedding_calls_second_run: 0
+
+
+  # ---------------------------------------------------------------------------
+  # Job-description chunking
+  # ---------------------------------------------------------------------------
+
+  - id: short_job_description
+    description: >
+      A sufficiently short job description may remain a single chunk.
+
+    source:
+      job_id: job_019
+      source_version: 1
+
+      job_description: >
+        Lead the applied AI engineering team and work directly with
+        strategic customers to deploy production GenAI applications.
+
+    expected:
+      field_name: job_description
+      unit_type: chunk
+      minimum_chunks: 1
+
+
+  - id: long_job_description
+    description: >
+      A long job description is split into multiple semantic chunks.
+
+    source:
+      job_id: job_020
+      source_version: 1
+
+      job_description_fixture: long_job_description
+
+    expected:
+      field_name: job_description
+      unit_type: chunk
+
+      minimum_chunks: 2
+
+      all_chunks:
+        job_id: job_020
+        field_name: job_description
+        is_deleted: false
+
+      preserve_chunk_order: true
+
+
+  - id: job_description_change_is_incremental
+    description: >
+      Updating part of a long job description should avoid unnecessary
+      re-embedding where the chunking implementation can identify
+      unchanged chunks.
+
+    existing:
+      job_id: job_021
+      source_version: 1
+      job_description_fixture: long_job_description_v1
+
+    updated:
+      job_id: job_021
+      source_version: 2
+      job_description_fixture: long_job_description_v2_one_section_changed
+
+    expected:
+      full_job_reembedding_required: false
+      unchanged_chunks_reused_where_possible: true
+
+
+  # ---------------------------------------------------------------------------
+  # Evidence anchors
+  # ---------------------------------------------------------------------------
+
+  - id: evidence_anchors_are_individual_units
+    description: >
+      Evidence anchors can be comparatively large in aggregate but each
+      anchor remains individually searchable.
+
+    source:
+      job_id: job_022
+      assessment_id: assessment_022
+      source_version: 1
+
+      evidence_anchors:
+        - >
+          The role explicitly asks for experience taking GenAI
+          applications from prototype into production.
+        - >
+          The hiring manager owns a team combining solution architects
+          and applied AI engineers.
+        - >
+          The job description states that the successful candidate will
+          work directly with strategic enterprise customers.
+
+    expected:
+      field_name: evidence_anchors
+      unit_type: list_item
+      semantic_units: 3
+
+
+  # ---------------------------------------------------------------------------
+  # Deletions
+  # ---------------------------------------------------------------------------
+
+  - id: delete_job
+    description: >
+      A job soft-deleted in SQLite must disappear from normal semantic
+      retrieval even if its vectors remain physically stored.
+
+    existing:
+      job_id: job_023
+      source_version: 4
+      is_deleted: false
+
+      indexed_units:
+        - role_snapshot
+        - real_mandate
+        - red_flags_item_1
+        - red_flags_item_2
+        - job_description_chunk_1
+        - job_description_chunk_2
+
+    updated:
+      job_id: job_023
+      source_version: 5
+      is_deleted: true
+
+    expected:
+      all_job_units:
+        is_deleted: true
+
+      default_semantic_search_results: 0
+
+      embedding_calls: 0
+
+      physical_vector_deletion_required_immediately: false
+
+
+  - id: restore_deleted_job
+    description: >
+      Restoring an unchanged job can reactivate existing semantic units
+      without recomputing embeddings.
+
+    existing:
+      job_id: job_024
+      source_version: 3
+      is_deleted: true
+
+    updated:
+      job_id: job_024
+      source_version: 4
+      is_deleted: false
+
+      semantic_content_changed: false
+
+    expected:
+      all_current_job_units:
+        is_deleted: false
+
+      embedding_calls: 0
+
+
+  # ---------------------------------------------------------------------------
+  # Versioning
+  # ---------------------------------------------------------------------------
+
+  - id: source_version_changes_without_semantic_change
+    description: >
+      A source record version may change because of structured metadata
+      without semantic content changing. This must not automatically
+      require re-embedding.
+
+    existing:
+      job_id: job_025
+      assessment_id: assessment_025
+      source_version: 7
+
+      role_snapshot: Senior AI transformation role.
+
+    updated:
+      job_id: job_025
+      assessment_id: assessment_025
+      source_version: 8
+
+      role_snapshot: Senior AI transformation role.
+
+    expected:
+      content_hash_changed: false
+      embedding_calls: 0
+      source_version_updated: true
+
+
+  - id: embedding_version_change
+    description: >
+      Changing embedding configuration invalidates otherwise unchanged
+      vectors.
+
+    existing:
+      job_id: job_026
+      embedding_version: embedding_v1
+
+      role_snapshot: Applied AI engineering leadership role.
+
+    updated_configuration:
+      embedding_version: embedding_v2
+
+    expected:
+      reembedding_required: true
+
+
+  - id: index_schema_version_change
+    description: >
+      An incompatible indexing-schema change can explicitly trigger a
+      controlled index migration.
+
+    existing:
+      index_schema_version: 1
+
+    updated_configuration:
+      index_schema_version: 2
+      migration_required: true
+
+    expected:
+      rebuild_or_migrate: true
+
+
+  # ---------------------------------------------------------------------------
+  # Isolation between jobs
+  # ---------------------------------------------------------------------------
+
+  - id: identical_text_across_jobs_remains_separate
+    description: >
+      Identical semantic content belonging to different jobs must remain
+      independently addressable because retrieval ultimately resolves
+      back to job entities.
+
+    source:
+      jobs:
+        - job_id: job_027
+          assessment_id: assessment_027
+          red_flags:
+            - Heavy travel.
+
+        - job_id: job_028
+          assessment_id: assessment_028
+          red_flags:
+            - Heavy travel.
+
+    expected:
+      total_semantic_units: 2
+
+      distinct_job_ids:
+        - job_027
+        - job_028
+
+
+  # ---------------------------------------------------------------------------
+  # Retrieval metadata
+  # ---------------------------------------------------------------------------
+
+  - id: semantic_unit_can_be_reconstructed_to_parent
+    description: >
+      Every assessment semantic unit contains enough metadata to resolve
+      its parent job and assessment.
+
+    source:
+      job_id: job_029
+      assessment_id: assessment_029
+
+      sustainability_risks:
+        - Heavy client-facing workload.
+
+    expected:
+      semantic_unit:
+        job_id: job_029
+        assessment_id: assessment_029
+        field_name: sustainability_risks
+        unit_type: list_item
+
+      parent_resolution_possible: true
+
+
+  - id: job_description_chunk_can_be_reconstructed_to_job
+    description: >
+      Every job-description chunk can be resolved back to its canonical
+      job.
+
+    source:
+      job_id: job_030
+      job_description_fixture: long_job_description
+
+    expected:
+      every_chunk_contains:
+        - job_id
+        - field_name
+        - unit_type
+        - unit_position
+
+      parent_resolution_possible: true
+
+
+  # ---------------------------------------------------------------------------
+  # Full mixed job
+  # ---------------------------------------------------------------------------
+
+  - id: complete_job_semantic_projection
+    description: >
+      A representative job produces scalar, list-item and job-description
+      chunk units while retaining one common job identity.
+
+    source:
+      job_id: job_031
+      assessment_id: assessment_031
+      source_version: 1
+      is_deleted: false
+
+      role_snapshot: >
+        Principal-level applied AI role focused on enterprise delivery.
+
+      real_mandate: >
+        Own strategic customer deployments from discovery through
+        production.
+
+      technical_bar: >
+        Strong Python, LLM application architecture, data engineering
+        and cloud deployment skills.
+
+      decision_reason: >
+        Strong match with end-to-end technical delivery experience.
+
+      strong_fit_signals:
+        - Strong production data-engineering background.
+        - Experience translating business problems into technical systems.
+        - Experience leading client delivery.
+
+      red_flags:
+        - Significant travel requirement.
+
+      sustainability_risks:
+        - Multiple strategic accounts may run concurrently.
+        - High level of client interaction.
+
+      evidence_gaps:
+        - Exact individual sales target is unclear.
+
+      evidence_anchors:
+        - >
+          The job description explicitly states ownership from technical
+          discovery through production deployment.
+        - >
+          The team works directly with the company's largest enterprise
+          customers.
+
+      job_description_fixture: long_job_description
+
+    expected:
+      scalar_units: 4
+
+      list_item_units:
+        strong_fit_signals: 3
+        red_flags: 1
+        sustainability_risks: 2
+        evidence_gaps: 1
+        evidence_anchors: 2
+
+      job_description:
+        minimum_chunks: 2
+
+      all_units_share:
+        job_id: job_031
+        is_deleted: false
+
+      semantic_retrieval_can_filter_by:
+        - field_name
+        - job_id
+        - is_deleted
+
+      job_level_reconstruction_possible: true
