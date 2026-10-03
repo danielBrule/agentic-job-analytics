@@ -149,9 +149,7 @@ Do not use an LLM for deterministic calculations, exact filters, simple joins or
 
 Model selection must be configuration-driven through the `ModelProvider` boundary. Graph nodes and business logic must not hard-code model names or instantiate provider-specific clients. Support named model profiles with independent assignments by agent or model task, including fallback where configured.
 
-The evaluation harness must run the same golden questions against multiple profiles and create comparable LangSmith experiments. Record resolved models and complete experiment configuration so the chosen model is hidden from business logic but visible in traces. Keep comparison conditions stable and expose quality, latency, cost and fallback trade-offs for human selection.
-
-The human selects the preferred profile or per-agent/task assignments based on the results. Apply that selection through configuration without graph rewrites. Do not invent a universal definition of the best model. See [docs/architecture.md](docs/architecture.md) for the comparison workflow and configuration requirements.
+Follow the [model comparison and human selection workflow](docs/architecture.md#model-comparison-and-human-selection). The human chooses profiles or per-agent/task assignments from comparable LangSmith experiments, then applies the selection through configuration. Keep resolved models visible in traces and out of business logic; do not invent a universal best model.
 
 ---
 
@@ -212,25 +210,11 @@ Do not approximate semantic retrieval with large collections of SQL `LIKE` claus
 
 Indexing must follow `docs/indexing.md` and `evals/indexing_cases.yaml`.
 
-Current semantic-unit policy:
+The indexing contract owns unit granularity, parsing, identity, versioning and lifecycle rules. Keep indexing incremental and idempotent; re-embed only changed units in the affected job/field.
 
-- `role_snapshot`, `real_mandate`, `decision_reason` → one vector per meaningful bullet, with unmarked text preserved as one unit
-- `technical_bar` → one vector for the complete populated field
-- list assessment field → one vector per meaningful parsed list item
-- `job_description` → multiple chunks when required
+Use only the current successful assessment for assessment units, while keeping descriptions searchable without an assessment. Deactivate obsolete records and exclude them from normal search.
 
-Indexing must be:
-
-- incremental
-- idempotent
-- version-aware
-- deletion-aware
-
-Use only the current successful (`ASSESSED`) assessment for each job: one job has zero or one usable assessment. Successful reassessment updates the source row; failed reassessment preserves the last successful result. Index descriptions even when no usable assessment exists.
-
-Deactivate obsolete vector records instead of physically deleting them during normal indexing. Use `is_active` separately from source deletion fields, and exclude inactive records from normal search. Limit updates to changed units in the relevant job/field.
-
-Do not re-embed unchanged semantic units. Preserve both `is_deleted` and `deleted_at` and propagate deletion to every unit belonging to a job. See the indexing and data-semantic contracts for their relationship.
+Preserve and propagate both `is_deleted` and `deleted_at` when supplied by the agreed source integration. Their absence in the checked source must remain explicit; follow [data semantics](docs/data_semantics.md#is_deleted-and-deleted_at) rather than querying absent columns.
 
 ---
 
@@ -314,8 +298,7 @@ Prefer links to the authoritative document instead.
 
 This repository may reuse data produced by the CV Generation Copilot.
 
-Authoritative data model:
-`https://github.com/danielBrule/job-application-copilot/blob/main/docs/data-model.md`
+The [verified source mapping](docs/data_semantics.md#verified-copilot-source-mapping) links the authoritative upstream data model and code at the checked revision.
 
 When consuming Copilot data:
 - treat its documented schema as authoritative

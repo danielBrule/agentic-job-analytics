@@ -118,7 +118,7 @@ Start small models on bounded planning, classification, extraction or simple syn
 
 ## Model comparison and human selection
 
-The evaluation harness must accept multiple named model profiles and run the same golden questions against each, using the same graph implementation. Make a comparison possible without editing nodes or copying evaluation code.
+The evaluation harness must accept multiple named model profiles and run the same golden questions against each, using the same graph implementation. Make a comparison possible without editing nodes or copying evaluation code. Handle private snapshots, traces and dataset exports according to [SECURITY.md](../SECURITY.md).
 
 1. Build a versioned LangSmith dataset from the golden questions and executable fixtures, retaining question IDs. Include prior conversation for contextual cases and a fixed reference date for time-dependent cases.
 2. Run each selected profile as a distinct LangSmith experiment. Fix the source-data snapshot, derived index, embedding configuration, prompts and evaluator versions when isolating model differences. Record any intentional differences as separate strategy experiments.
@@ -198,10 +198,6 @@ Out of scope initially:
 
 Prefer explicit architecture, deterministic safeguards, dependency injection, visible state and evaluation-driven development. Avoid hiding deterministic rules in prompts or over-engineering adapters before a second implementation is plausible.
 
-Correctness, learning value, testability, service replaceability, a credible path to scale and simplicity are equally important criteria. There is no fixed priority order or default weighted score.
+The equally important engineering criteria and human decision process are defined in [AGENTS.md](../AGENTS.md#1-engineering-principles). Record material decisions and their rationale; existing contracts remain requirements.
 
-When a material conflict prevents satisfying them together, present feasible options with clear evidence, benefits, costs, risks and uncertainties. State which criteria each option improves or compromises, explain the recommendation, and let the human choose before implementing the disputed decision. Record the choice and its rationale. Continue independent preparation and routine work within the authorised scope while that decision is pending.
-
-Equal importance does not make existing contracts optional. If an option requires changing a contract, identify the change explicitly and obtain the human's decision before implementing it. Do not silently trade away read-only safeguards or evidence requirements.
-
-The checked Copilot source mapping, decision vocabularies, score scales, locations, current-assessment relationship and timestamps are documented in [data_semantics.md](data_semantics.md). Two integration facts remain explicit: the source lacks the target `is_deleted`/`deleted_at` fields and a native source-version counter. Resolve soft-deletion support before implementation; derive revision tokens without mutating the canonical source. Application closure and interview-stage semantics remain unnormalised free text. Define the source of the candidate technical profile for profile-similarity questions. Do not silently invent schema or profile facts.
+The checked Copilot source mapping and [unresolved integration/evaluation definitions](data_semantics.md#12-unresolved-integration-and-evaluation-definitions) are maintained in `data_semantics.md`. Resolve each gap before implementing its affected capability; preserve read-only source access.

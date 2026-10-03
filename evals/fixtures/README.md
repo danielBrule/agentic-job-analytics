@@ -31,15 +31,15 @@ The source database was accessed through filesystem reads. An intermediate priva
 
 There are SQL references for q01–q05, q22–q26 and the q29 follow-up. The metric references for q23–q26 support synthesis grading; their existence does not establish a preferred model or validate an explanation. q07, q08 and q10 have supporting raw items/dimensions. q21 has a proposed per-task/per-requested-model calculation, explicitly awaiting a definition of “per assessment”.
 
-Include reported token usage from failed calls. Keep unreported usage distinct from zero, expose coverage and do not add cache counts again to total tokens. A requested model is not proof of the resolved model. q25 uses prompt versions recorded on individual calls; q26 attributes calls to the current successful assessment's role family and does not claim historical family tracking.
+Call usage, missing-value handling and historical version semantics follow [data_semantics.md](../../docs/data_semantics.md#10-llm_calls-semantics). Query-specific interpretation limits are recorded alongside each reference definition.
 
-Use the pack's fixed reference date and conversation history in every compared experiment. Keep data, derived index, embedding configuration, prompts and evaluators fixed when comparing generative models, as required by [architecture.md](../../docs/architecture.md).
+Use the pack's fixed reference date and conversation history in every compared experiment. Follow the [model comparison workflow](../../docs/architecture.md#model-comparison-and-human-selection) for the remaining controls and experiment metadata.
 
 ## Remaining coverage and review
 
 Real data is useful but does not contain every required case. The prepared pack has no next-action dates, no current `GO` assessments and no recorded interview stages. Add small synthetic fixtures for meaningful overdue/open/closed, GO-seed and interview-seed tests, alongside the real-data pack. An empty result alone does not validate those behaviours.
 
-Resolve closure and interview-stage vocabulary, the candidate technical-profile source for q19 and the assessment-run unit/model attribution for q21 before treating these cases as fully labelled. Do not change existing golden questions to accommodate gaps in the snapshot.
+Resolve the affected [integration and evaluation definitions](../../docs/data_semantics.md#12-unresolved-integration-and-evaluation-definitions) before treating these cases as fully labelled. Do not change existing golden questions to accommodate gaps in the snapshot.
 
 Semantic relevance and thematic grouping require reviewed judgments. An empty `judgments` array means “unreviewed”, not “no relevant jobs”. Record job IDs, evidence references, rationale and reviewer; preserve partial relevance, negative examples and insufficient evidence. Freeze approved labels before comparing models. Do not let the evaluated model define its own ground truth.
 

@@ -8,11 +8,7 @@ The vector index is a derived, rebuildable search structure.
 
 It is not a second source of truth.
 
-Executable acceptance cases live in:
-
-```text
-evals/indexing_cases.yaml
-```
+Acceptance definitions live in [indexing_cases.yaml](../evals/indexing_cases.yaml). The executable indexing harness remains implementation work. Cases use sparse normalized indexing inputs to isolate behaviour; they are not complete physical source rows.
 
 ---
 
@@ -442,7 +438,7 @@ Use for controlled migrations when unit structure or indexing semantics change.
 
 Do not overload one version field to represent all three concepts.
 
-The change from one unit per assessment scalar to bullet-level units is an incompatible indexing-schema change. Increment `index_schema_version` during implementation and rebuild or migrate affected fields. Deactivate old whole-field units when replacing them with bullets; do not leave both representations active. This acceptance-file version is separate from the runtime index schema version.
+An existing index built with one unit per assessment scalar is incompatible with bullet-level units. When migrating such an index, increment `index_schema_version` and rebuild or migrate affected fields. Deactivate old whole-field units when replacing them with bullets; do not leave both representations active. For a new index, initialise the schema version for the implemented contract. The version in `evals/indexing_cases.yaml` tracks acceptance definitions separately from the runtime index schema version.
 
 ---
 
@@ -525,38 +521,13 @@ job_17 / real_mandate / hit
 
 represents two jobs, not three.
 
-Runtime retrieval must:
-
-1. retrieve semantic units
-2. group/deduplicate by `job_id`
-3. rank at job level
-4. retrieve canonical context from SQLite
-5. synthesise the answer
-
-See `docs/retrieval_contract.md`.
+Indexing must preserve identifiers and provenance that support job-level grouping and canonical reconstruction. Runtime ranking, context expansion and synthesis are defined in [retrieval_contract.md](retrieval_contract.md#11-semantic-scope-and-job-level-ranking).
 
 ---
 
 ## 15. Field-aware search
 
-Store `field_name` as filterable metadata.
-
-This enables queries to target appropriate semantic dimensions without creating separate physical indexes for every field.
-
-Examples:
-
-```text
-risks
-→ red_flags, sustainability_risks, evidence_gaps
-
-role nature
-→ job_description, role_snapshot, real_mandate
-
-fit evidence
-→ strong_fit_signals, technical_bar, evidence_anchors
-```
-
-Field filtering is optional; it must not prevent broader retrieval when the user concept legitimately spans multiple fields.
+Store `field_name` as filterable metadata so retrieval can select semantic dimensions without requiring a separate physical index for each field. Runtime field-selection hints and their limits are defined in [retrieval_contract.md](retrieval_contract.md#9-field-aware-semantic-retrieval).
 
 ---
 
@@ -582,21 +553,7 @@ A full rebuild should produce behaviourally equivalent semantic units for the sa
 
 The semantic model should not change merely because vector count grows.
 
-Expected progression:
-
-```text
-< 100k vectors
-    straightforward local/small deployment
-
-100k–1M
-    still routine
-
-1M–10M
-    ANN/index configuration and metadata filtering matter more
-
-10M+
-    partitioning, operational cost and indexing throughput become first-class concerns
-```
+Capacity depends on embedding dimensions, metadata filters, backend, hardware and workload. Measure latency, memory, indexing throughput and cost rather than assuming a vector-count threshold guarantees a particular deployment size.
 
 Before coarsening semantic units solely to reduce vector count, consider:
 
@@ -607,27 +564,10 @@ Before coarsening semantic units solely to reduce vector count, consider:
 - partitioning
 - batch embedding/indexing
 
-Retrieval quality remains the primary reason for choosing semantic-unit granularity.
+Evaluate granularity against all equally important [engineering criteria](../AGENTS.md#1-engineering-principles). Existing unit contracts remain requirements; a material conflict or proposed contract change goes to the human with evidence.
 
 ---
 
 ## 18. Evaluation boundary
 
-`evals/indexing_cases.yaml` evaluates indexing correctness.
-
-Examples:
-
-- list and bullet splitting
-- technical_bar handling and unmarked-text fallback
-- no-op reindex
-- item addition/removal
-- reordering
-- deletion
-- version migration
-- parent reconstruction
-- stale-vector detection
-- full rebuild equivalence
-
-`evals/golden_questions.yaml` evaluates user-facing retrieval capability.
-
-Do not change golden questions merely because the internal indexing implementation changes.
+[Indexing cases](../evals/indexing_cases.yaml) define transformation and index-lifecycle acceptance. [Golden questions](../evals/golden_questions.yaml) define user-facing retrieval acceptance; internal indexing changes alone do not change them. See [architecture.md](architecture.md#evaluation-and-observability) for metrics and [evaluation fixtures](../evals/fixtures/README.md) for real-data coverage and controlled synthetic transitions.

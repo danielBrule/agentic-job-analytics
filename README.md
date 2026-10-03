@@ -2,6 +2,8 @@
 
 A conversational, read-only analytics agent over job opportunities, assessments and LLM operation records.
 
+The repository currently contains project contracts and evaluation references. Runtime implementation is planned after this specification phase.
+
 This project has two equally important objectives:
 
 1. Build a credible, production-minded agentic analytics system.
@@ -34,4 +36,4 @@ Indexing is incremental, idempotent, version-aware and deletion-aware. Obsolete 
 
 Python handles orchestration, transformation and application logic; SQL handles deterministic relational operations. Tests and acceptance cases precede behavioural implementation.
 
-See [AGENTS.md](AGENTS.md) for the development workflow and [docs/architecture.md](docs/architecture.md) for the initial scope. These documents define the intended system; they do not imply that it is already implemented.
+See [AGENTS.md](AGENTS.md) for the development workflow and [docs/architecture.md](docs/architecture.md) for the initial scope.

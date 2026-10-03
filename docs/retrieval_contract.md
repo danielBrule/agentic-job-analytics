@@ -96,7 +96,7 @@ A semantic unit can be:
 - one item from a list field
 - one chunk of a job description
 
-See `docs/indexing.md`.
+See [indexing.md](indexing.md#2-indexed-fields).
 
 ### Flow
 
@@ -145,7 +145,7 @@ similar to FDE
 Structured components:
 
 ```text
-location = France
+location = FR
 seniority_fit
 ```
 
@@ -271,8 +271,8 @@ Prefer evidence from:
 Prefer evidence from:
 
 - `strong_fit_signals`
-- `technical_bar`
-- `evidence_anchors`
+- `technical_bar` as role-requirement context, not proof of candidate fit
+- `evidence_anchors`, keeping candidate facts separate from support inferences
 
 ### Risks
 
@@ -293,7 +293,7 @@ Prefer evidence from:
 
 These are retrieval hints, not rigid exclusions.
 
-Field semantics are defined in `docs/data_semantics.md`.
+Field semantics are defined in [data_semantics.md](data_semantics.md).
 
 ---
 
@@ -416,33 +416,22 @@ deleted_at IS NULL
 
 by default.
 
-Inactive/obsolete index records are excluded even when the job itself is not deleted. The checked source does not have the target soft-deletion fields; source compatibility and confirmed missing-record handling are defined in `docs/data_semantics.md`. Reject hits whose current parent job or usable assessment no longer exists, regardless of stale vector metadata.
+Inactive/obsolete index records are excluded even when the job itself is not deleted. The checked source lacks the target soft-deletion fields; follow [source deletion semantics](data_semantics.md#is_deleted-and-deleted_at) for compatibility and confirmed missing-record handling.
 
-Both deletion fields must be consistent with the canonical record when supplied by the agreed source integration. Conflicting state is an explicit error and must not allow a job into normal retrieval. See `docs/data_semantics.md`.
+Reject hits whose current parent job no longer exists. Assessment-derived hits also require the referenced current assessment to remain usable (`ASSESSED`). Job-description hits do not require an assessment.
 
-If vector content is stale relative to a newer SQLite source version or source timestamp, use the current SQLite record and do not present stale indexed text as current evidence.
+Both deletion fields must be consistent with the canonical record when supplied by the agreed source integration. Conflicting state is an explicit error and excludes the job from normal retrieval.
+
+The source has no native version column. Compare the index's derived revision token with the current source projection; opaque tokens are compared for equality, not ordered as version numbers. A changed token or timestamp prompts content verification. Content hashes and unit membership must also detect changes when timestamps match.
+
+Use current SQLite content when indexed text has changed or been removed. Do not claim a current semantic match supported only by stale text. An unchanged unit remains valid despite unrelated record changes; index synchronization and retained-assessment staleness are separate concerns.
 
 ---
 
 ## 15. Evaluation
 
-User-facing retrieval capability is evaluated by:
+[Golden questions](../evals/golden_questions.yaml) define user-facing capability and answer acceptance. [Indexing cases](../evals/indexing_cases.yaml) define transformation acceptance. Internal provider, model or indexing changes do not justify changing golden questions unless desired user behaviour changes.
 
-```text
-evals/golden_questions.yaml
-```
-
-That file is capability-based rather than route-implementation-based.
-
-Changing the vector database, embedding model, chunk size, ANN algorithm or orchestration framework should not require changing golden questions unless desired user behaviour changes.
-
-Index transformation behaviour is evaluated separately in:
-
-```text
-evals/indexing_cases.yaml
-```
-
-
-Use LangSmith traces, datasets, evaluators and experiments from the beginning. Measure planner/capability and tool selection, SQL correctness, semantic relevance, evidence completeness, groundedness, answer quality, latency, token usage, retries and fallback. Preserve the same user-facing questions across model/provider experiments; change them only when desired behaviour changes.
+Use the LangSmith [comparison workflow](architecture.md#model-comparison-and-human-selection), metrics and observability requirements in [architecture.md](architecture.md#evaluation-and-observability). Fixture readiness and reviewed labels are tracked in the [fixture guide](../evals/fixtures/README.md).
 
 Retries and fallback must be bounded and visible. An invalid SQL statement, failed tool or unsupported model output is an explicit failure, not permission to relax safeguards or fabricate evidence.

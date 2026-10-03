@@ -83,7 +83,7 @@ This is source metadata. It should not be treated as a complete description of t
 
 Stored location for the job.
 
-Use structured filtering for exact country/city constraints.
+Use structured filtering for exact country constraints. This field does not encode a city.
 
 The checked source stores the enum values `UK`, `FR` and `CH`. Use `FR` for France; do not infer countries from free-text city matching.
 
@@ -144,7 +144,7 @@ For a job confirmed missing from a complete source snapshot, deactivate its deri
 
 ### Source freshness
 
-`source_updated_at` on description units maps to `jobs.updated_at`; on assessment units it maps to `assessments.updated_at`. These are synchronization hints. Content hashes control re-embedding; an administrative timestamp change alone does not require new embeddings. Compute `source_version` as an opaque deterministic source-revision token because the upstream has no native version counter. `indexed_at` is index synchronization time, not source freshness.
+The mapping above identifies canonical update timestamps. They are synchronization hints; administrative edits do not imply semantic changes. Derived revision tokens, content hashes and index synchronization timestamps are defined in [indexing provenance](indexing.md#provenance-naming). Assessment-input staleness is defined separately below.
 
 ---
 
@@ -194,7 +194,7 @@ Typical content may include:
 
 It is an assessment summary, not source evidence.
 
-Stored as scalar text formatted with bullets. Semantic indexing splits meaningful line-start `-` or `*` bullets; the relational field remains text.
+Stored as scalar text, usually formatted with bullets. Its searchable representation is defined in [indexing.md](indexing.md#bullet-formatted-assessment-text).
 
 ### `real_mandate`
 
@@ -202,7 +202,7 @@ Interpretation of what the person would actually be expected to accomplish.
 
 This may differ from the advertised title or wording.
 
-Stored as scalar text formatted with bullets and indexed per meaningful bullet.
+Stored as scalar text, usually formatted with bullets.
 
 Typical content may include:
 
@@ -226,19 +226,17 @@ Description of the technical capability expected by the role.
 
 This describes the role requirement, not the candidate's score against it.
 
-It remains one complete semantic unit, even if it contains multiple sentences or bullet-like formatting.
-
 Do not confuse with `tech_bar_fit`, which is a structured assessment of fit against that bar.
 
 ### `decision_reason`
 
-Explanation supporting the assessment/application decision.
+Explanation supporting the model recommendation in `assessments.decision`. It does not explain the human decision in `jobs.user_decision`.
 
 This is interpretive and may combine fit, seniority, mandate, risks, commercial considerations, sustainability and evidence gaps.
 
 Do not treat it as raw job-description evidence.
 
-Stored as scalar text formatted with bullets and indexed per meaningful bullet.
+Stored as scalar text, usually formatted with bullets.
 
 ---
 
@@ -254,7 +252,7 @@ evidence_gaps
 evidence_anchors
 ```
 
-Each meaningful item is independently indexed semantically.
+Storage and searchable representations are distinct; [indexing.md](indexing.md#list-semantic-fields) defines the projection.
 
 ### `strong_fit_signals`
 
@@ -313,15 +311,15 @@ sustainability_risks
 
 ### `evidence_gaps`
 
-Important information missing or ambiguous in the available evidence.
+Missing or ambiguous evidence relevant to the assessment, including gaps in the documented candidate profile against the role requirements. Identify whether a gap concerns candidate evidence or missing role information; do not assume all gaps describe missing job-description details.
 
 Examples:
 
-- unclear team size
-- unclear travel requirement
-- unclear commercial quota
-- unclear hands-on expectation
-- unclear reporting line
+- no documented experience in the employer’s industry
+- unclear evidence of candidate ownership at the required scope
+- unclear role expectations that prevent assessing the match
+
+The checked upstream [assessment fixture](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/tests/fixtures/assessment_output_valid.json) includes a candidate industry-experience gap.
 
 An evidence gap should reduce confidence. It should not be silently converted into either a positive or negative fact.
 
@@ -329,7 +327,7 @@ An evidence gap should reduce confidence. It should not be silently converted in
 
 In the checked source this is a JSON array of objects, not strings. Each object contains `source_reference`, `evidence` and `supports`. It records a traceable Document A candidate-profile fact and the assessment inference that fact supports. Do not present it as a verbatim job-description excerpt.
 
-Keep each anchor traceable to its assessment/job and source reference. Derive one searchable text unit per object with explicitly labelled evidence and support statements, retaining the source reference as metadata. The canonical object stays in SQLite. See `docs/indexing.md` for deterministic rendering.
+Keep each anchor traceable to its assessment/job and source reference. The canonical object stays in SQLite; [indexing.md](indexing.md#evidence-anchor-objects) defines deterministic rendering and identity.
 
 ---
 
@@ -427,7 +425,7 @@ Primarily:
 job_description
 ```
 
-and external/source-derived factual job metadata.
+and external/source-derived factual job metadata. `evidence_anchors[].evidence` records candidate-profile facts from Document A, a separate source from the job description. An anchor's `supports` statement is an assessment inference.
 
 ### Assessment interpretation
 
@@ -442,7 +440,7 @@ strong_fit_signals
 red_flags
 sustainability_risks
 evidence_gaps
-evidence_anchors
+evidence_anchors[].supports
 fit_score
 priority_score
 tech_bar_fit
@@ -503,13 +501,17 @@ Retry attempt number.
 
 ### `status`
 
-Success/failure status.
+Stored call outcomes are `SUCCEEDED` and `FAILED`, distinct from assessment-row statuses.
 
 ### `failure_category`
 
 Normalised category for failure analysis.
 
 Prefer categories over relying only on free-text exception messages.
+
+### `task_id` and `task_attempt_id`
+
+Nullable identifiers for the source background task and its execution attempt. A task can produce multiple calls, steps and retries. These identifiers can support run-level accounting, but the evaluation definition of “per assessment” is unresolved. Do not combine unrelated calls with missing task IDs into one invented assessment run.
 
 ### `version_metadata`
 
@@ -534,13 +536,14 @@ Retrieval and synthesis should preserve this distinction.
 
 ---
 
-## 12. Semantic indexing summary
+## 12. Unresolved integration and evaluation definitions
 
-- `role_snapshot`, `real_mandate`, `decision_reason`: one unit per meaningful bullet. Unmarked text remains one scalar unit.
-- `technical_bar`: one complete scalar unit.
-- `strong_fit_signals`, `red_flags`, `sustainability_risks`, `evidence_gaps`, `evidence_anchors`: one unit per meaningful parsed list item.
-- `job_description`: chunks when required.
+| Topic | Definition still needed | Affected capability |
+|---|---|---|
+| Soft deletion | An agreed upstream schema or adapter strategy supplying both target deletion fields; the checked source physically deletes jobs | Deletion/restoration integration |
+| Application closure | Explicit mapping from free-text process state to closed/open; missing `closure_reason` alone is insufficient | q06 |
+| Interview history | A supported definition/source for having had an interview; current free-text status does not guarantee historical stage information | q18 |
+| Candidate technical profile | Canonical source and version of the profile used for similarity, beyond individual assessment anchors | q19 |
+| Tokens per assessment | Whether the unit is a task, attempt or invocation, model attribution, retry inclusion and treatment of unreported usage | q21 |
 
-Bullet-formatted text fields and serialized list fields are different source representations. Parse each deterministically; do not change their relational meaning or storage type merely to index them.
-
-See `docs/indexing.md` for the technical indexing contract.
+Resolve these definitions before implementing or fully grading the affected capability. Do not silently infer them or change the golden questions to fit available data. The [fixture guide](../evals/fixtures/README.md#remaining-coverage-and-review) records snapshot coverage and outstanding review; [indexing.md](indexing.md) owns semantic-unit representation.
