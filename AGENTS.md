@@ -28,6 +28,8 @@ Authoritative behavioural and data contracts live in:
 - `evals/golden_questions.yaml` — retrieval/answer acceptance cases
 - `evals/indexing_cases.yaml` — indexing acceptance cases
 
+Read and follow [SECURITY.md](SECURITY.md) when changing data handling, external-provider calls, tracing, logging, evaluation datasets, persistence or secrets management.
+
 If implementation and documentation disagree, do not silently choose one. Identify the conflict and resolve it explicitly.
 
 ---
@@ -291,6 +293,7 @@ Update the relevant documentation when a contract changes.
 Use:
 
 - `README.md` for project overview only
+- `SECURITY.md` for security/privacy requirements, boundaries and vulnerability reporting
 - `AGENTS.md` for coding-agent working instructions
 - `docs/data_semantics.md` for domain/data meaning
 - `docs/retrieval_contract.md` for runtime behaviour
