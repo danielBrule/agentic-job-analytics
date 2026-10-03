@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "golden_questions_version": 5,
+  "description": "Reference SQL for local, private Copilot evaluation snapshots. These queries define supporting facts; they do not prescribe generated SQL text or answer wording.",
+  "numeric_comparison": {
+    "integer": "exact",
+    "float_absolute_tolerance": 0.000001,
+    "default_rows": "unordered; compare semantic columns and source identifiers",
+    "ranking": "q03 descending mean priority, preserving ties; q22/q26 may rank token and time metrics independently"
+  },
+  "references": [
+    {
+      "id": "q01",
+      "status": "exact_sql_reference",
+      "purpose": "Jobs added per calendar month and source location.",
+      "sql": "SELECT strftime('%Y-%m', date_added) AS month, location, COUNT(*) AS job_count FROM jobs GROUP BY month, location ORDER BY month, location"
+    },
+    {
+      "id": "q02",
+      "status": "exact_sql_reference",
+      "purpose": "Average fit by role family; only current ASSESSED rows.",
+      "sql": "SELECT primary_role_family, COUNT(*) AS assessment_count, COUNT(fit_score) AS reported_score_count, AVG(fit_score) AS average_fit_score FROM assessments WHERE status = 'ASSESSED' GROUP BY primary_role_family ORDER BY primary_role_family"
+    },
+    {
+      "id": "q03",
+      "status": "exact_sql_reference",
+      "purpose": "Average priority by role family, descending; equal averages are ties.",
+      "sql": "SELECT primary_role_family, COUNT(*) AS assessment_count, COUNT(priority_score) AS reported_score_count, AVG(priority_score) AS average_priority_score FROM assessments WHERE status = 'ASSESSED' GROUP BY primary_role_family ORDER BY average_priority_score DESC, primary_role_family"
+    },
+    {
+      "id": "q04",
+      "status": "exact_sql_reference",
+      "purpose": "Inclusive score boundaries, excluding unsuccessful assessments.",
+      "sql": "SELECT j.id AS job_id, j.company, j.job_title, a.id AS assessment_id, a.tech_bar_fit, a.seniority_fit FROM jobs j JOIN assessments a ON a.job_id = j.id AND a.status = 'ASSESSED' WHERE a.tech_bar_fit >= 8 AND a.seniority_fit <= 5 ORDER BY j.id"
+    },
+    {
+      "id": "q05",
+      "status": "exact_sql_reference",
+      "purpose": "Human DO_NOT_PURSUE decision, separate from the model recommendation.",
+      "sql": "SELECT j.id AS job_id, j.company, j.job_title, j.user_decision, a.id AS assessment_id, a.fit_score FROM jobs j JOIN assessments a ON a.job_id = j.id AND a.status = 'ASSESSED' WHERE j.user_decision = 'DO_NOT_PURSUE' AND a.fit_score >= 8 ORDER BY j.id"
+    },
+    {
+      "id": "q07",
+      "status": "supporting_evidence_only",
+      "purpose": "Exact stored red-flag strings and affected-job counts; semantic theme grouping is not labelled.",
+      "sql": "SELECT item.value AS exact_item, COUNT(DISTINCT a.job_id) AS job_count FROM assessments a, json_each(a.red_flags) item WHERE a.status = 'ASSESSED' AND item.type = 'text' AND length(trim(item.value)) > 0 GROUP BY item.value ORDER BY job_count DESC, exact_item"
+    },
+    {
+      "id": "q08",
+      "status": "supporting_evidence_only",
+      "purpose": "Exact sustainability-risk strings for fit >= 8; interpretation and thematic grouping need review.",
+      "sql": "SELECT item.value AS exact_item, COUNT(DISTINCT a.job_id) AS job_count FROM assessments a, json_each(a.sustainability_risks) item WHERE a.status = 'ASSESSED' AND a.fit_score >= 8 AND item.type = 'text' AND length(trim(item.value)) > 0 GROUP BY item.value ORDER BY job_count DESC, exact_item"
+    },
+    {
+      "id": "q10",
+      "status": "supporting_evidence_only",
+      "purpose": "Raw material-mandate dimensions for evidence-strength analysis; thematic labels require review.",
+      "sql": "SELECT a.job_id, a.id AS assessment_id, item.key AS source_item_index, json_extract(item.value, '$.id') AS dimension_id, json_extract(item.value, '$.description') AS description, json_extract(item.value, '$.importance') AS importance, json_extract(item.value, '$.evidence_strength') AS evidence_strength FROM assessments a, json_each(a.material_mandate_dimensions) item WHERE a.status = 'ASSESSED' AND item.type = 'object' ORDER BY a.job_id, item.key"
+    },
+    {
+      "id": "q21",
+      "status": "supporting_evidence_only",
+      "purpose": "Per-task/per-requested-model accounting candidate. A task is a possible assessment-run unit; this definition needs confirmation. Report complete-task mean separately from incomplete usage. Requested models do not imply resolved models.",
+      "sql": "WITH per_task AS (SELECT task_id, requested_model, COUNT(*) AS call_count, COUNT(total_tokens) AS reported_usage_calls, SUM(total_tokens) AS reported_tokens, CASE WHEN COUNT(total_tokens) = COUNT(*) THEN SUM(total_tokens) END AS complete_tokens FROM llm_calls WHERE operation = 'ASSESSMENT' GROUP BY task_id, requested_model) SELECT requested_model, COUNT(*) AS task_model_groups, SUM(call_count) AS call_count, SUM(reported_usage_calls) AS reported_usage_calls, SUM(reported_tokens) AS reported_tokens, COUNT(complete_tokens) AS complete_usage_task_groups, AVG(complete_tokens) AS average_tokens_complete_task_groups FROM per_task GROUP BY requested_model ORDER BY requested_model"
+    },
+    {
+      "id": "q22",
+      "status": "exact_sql_reference",
+      "purpose": "Step totals and means for tokens and duration, with missing usage coverage; include failed calls.",
+      "sql": "SELECT pipeline_step, COUNT(*) AS call_count, COUNT(total_tokens) AS reported_usage_calls, COUNT(*) - COUNT(total_tokens) AS missing_usage_calls, SUM(total_tokens) AS total_reported_tokens, AVG(total_tokens) AS average_reported_tokens, SUM(duration_seconds) AS total_duration_seconds, AVG(duration_seconds) AS average_duration_seconds FROM llm_calls GROUP BY pipeline_step ORDER BY total_reported_tokens DESC, pipeline_step"
+    },
+    {
+      "id": "q23",
+      "status": "exact_sql_reference",
+      "purpose": "Measured model trade-offs. NULL resolved_model is an unknown group, never replaced with requested_model. This supplies facts, not a preferred-model label.",
+      "sql": "SELECT resolved_model, COUNT(*) AS call_count, SUM(status = 'SUCCEEDED') AS succeeded_calls, SUM(status = 'FAILED') AS failed_calls, 1.0 * SUM(status = 'SUCCEEDED') / COUNT(*) AS success_rate, AVG(duration_seconds) AS average_duration_seconds, COUNT(total_tokens) AS reported_usage_calls, COUNT(*) - COUNT(total_tokens) AS missing_usage_calls, SUM(total_tokens) AS total_reported_tokens, AVG(total_tokens) AS average_reported_tokens FROM llm_calls GROUP BY resolved_model ORDER BY resolved_model"
+    },
+    {
+      "id": "q24",
+      "status": "exact_sql_reference",
+      "purpose": "Retry-call counts and failure categories by step. Counts are calls, not inferred assessment runs.",
+      "sql": "SELECT pipeline_step, status, failure_category, COUNT(*) AS call_count, SUM(retry_number > 0) AS retried_call_count, MAX(retry_number) AS highest_retry_number FROM llm_calls GROUP BY pipeline_step, status, failure_category ORDER BY call_count DESC, pipeline_step, status, failure_category"
+    },
+    {
+      "id": "q25",
+      "status": "exact_sql_reference",
+      "purpose": "Compare the two prompt versions with the latest recorded call times; use each historical call's own JSON version.",
+      "sql": "WITH calls AS (SELECT *, json_extract(version_metadata, '$.prompt_version') AS prompt_version FROM llm_calls WHERE operation = 'ASSESSMENT'), latest AS (SELECT prompt_version, MAX(started_at) AS latest_call_at FROM calls WHERE prompt_version IS NOT NULL GROUP BY prompt_version ORDER BY latest_call_at DESC, CAST(prompt_version AS TEXT) DESC LIMIT 2) SELECT l.prompt_version, l.latest_call_at, COUNT(*) AS call_count, SUM(c.status = 'FAILED') AS failed_calls, 1.0 * SUM(c.status = 'FAILED') / COUNT(*) AS failure_rate, AVG(c.duration_seconds) AS average_duration_seconds FROM calls c JOIN latest l ON l.prompt_version = c.prompt_version GROUP BY l.prompt_version, l.latest_call_at ORDER BY l.latest_call_at DESC"
+    },
+    {
+      "id": "q26",
+      "status": "exact_sql_reference",
+      "purpose": "Historical call metrics attributed to the current successful assessment's role family; not historical family tracking.",
+      "sql": "SELECT a.primary_role_family, COUNT(*) AS call_count, COUNT(c.total_tokens) AS reported_usage_calls, COUNT(*) - COUNT(c.total_tokens) AS missing_usage_calls, SUM(c.total_tokens) AS total_reported_tokens, AVG(c.total_tokens) AS average_reported_tokens, SUM(c.duration_seconds) AS total_duration_seconds, AVG(c.duration_seconds) AS average_duration_seconds FROM llm_calls c JOIN assessments a ON a.job_id = c.job_id AND a.status = 'ASSESSED' GROUP BY a.primary_role_family ORDER BY total_reported_tokens DESC, a.primary_role_family"
+    },
+    {
+      "id": "q29",
+      "status": "exact_sql_reference",
+      "purpose": "Follow-up fixture: previous user question q01, previous assistant result from its reference rows, then q29. Preserve q01's month grouping and restrict location to FR.",
+      "sql": "SELECT strftime('%Y-%m', date_added) AS month, location, COUNT(*) AS job_count FROM jobs WHERE location = 'FR' GROUP BY month, location ORDER BY month, location"
+    }
+  ]
+}

@@ -165,7 +165,7 @@ The acceptance sources are:
 - [../evals/golden_questions.yaml](../evals/golden_questions.yaml): user-facing capability and answer behaviour.
 - [../evals/indexing_cases.yaml](../evals/indexing_cases.yaml): transformation and index correctness.
 
-Create executable fixtures and evaluators during implementation. The YAML cases specify expectations; they are not evidence of passing executable tests.
+A private source-data snapshot and reference results have been prepared; see [evaluation fixtures](../evals/fixtures/README.md) for coverage, review requirements and remaining synthetic cases. Complete executable evaluators and the LangSmith comparison runner during implementation. The YAML cases and prepared reference data are not evidence of passing agent tests.
 
 Agent evaluation covers planning/capability selection, tool selection, SQL correctness, semantic relevance, evidence completeness, groundedness, answer quality, latency, token usage, retries and fallback.
 

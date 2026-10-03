@@ -28,6 +28,7 @@ Indexing is incremental, idempotent, version-aware and deletion-aware. Obsolete 
 | [docs/indexing.md](docs/indexing.md) | Relational-to-vector indexing design |
 | [evals/golden_questions.yaml](evals/golden_questions.yaml) | User-facing acceptance cases |
 | [evals/indexing_cases.yaml](evals/indexing_cases.yaml) | Indexing acceptance cases |
+| [evals/fixtures/README.md](evals/fixtures/README.md) | Evaluation snapshots, reference facts and review coverage |
 
 ## Development
 
