@@ -1,0 +1,2 @@
+# YAML parsing for repository and CI checks; no runtime dependencies yet.
+PyYAML==6.0.3

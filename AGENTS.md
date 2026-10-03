@@ -85,6 +85,8 @@ For non-trivial changes:
 
 Small local fixes that do not change behaviour or contracts do not require an approval pause.
 
+Use `dev.ps1` as the shared local/CI validation entry point. Run `./dev.ps1 check` before reporting a change complete; available targets and baseline scope are defined in [docs/development.md](docs/development.md).
+
 ---
 
 ## 3. Test-first default
@@ -289,6 +291,7 @@ Use:
 - `docs/retrieval_contract.md` for runtime behaviour
 - `docs/indexing.md` for indexing architecture
 - `docs/architecture.md` for learning objectives, orchestration, provider boundaries, model experiments and initial scope
+- `docs/development.md` for setup, development commands, branch flow and CI operation
 
 Avoid duplicating detailed contracts across files.
 

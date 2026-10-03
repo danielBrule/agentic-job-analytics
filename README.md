@@ -2,7 +2,7 @@
 
 A conversational, read-only analytics agent over job opportunities, assessments and LLM operation records.
 
-The repository currently contains project contracts and evaluation references. Runtime implementation is planned after this specification phase.
+The repository currently contains project contracts, evaluation references and development checks. Runtime implementation is planned after this specification phase.
 
 This project has two equally important objectives:
 
@@ -36,4 +36,4 @@ Indexing is incremental, idempotent, version-aware and deletion-aware. Obsolete 
 
 Python handles orchestration, transformation and application logic; SQL handles deterministic relational operations. Tests and acceptance cases precede behavioural implementation.
 
-See [AGENTS.md](AGENTS.md) for the development workflow and [docs/architecture.md](docs/architecture.md) for the initial scope.
+Use `./dev.ps1 setup` once, then `./dev.ps1 check` before proposing changes. See [docs/development.md](docs/development.md) for commands and the feature → `dev` → `main` workflow, [AGENTS.md](AGENTS.md) for coding-agent instructions and [docs/architecture.md](docs/architecture.md) for the initial scope.
