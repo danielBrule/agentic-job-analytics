@@ -226,6 +226,10 @@ Indexing must be:
 - version-aware
 - deletion-aware
 
+Use only the current successful (`ASSESSED`) assessment for each job: one job has zero or one usable assessment. Successful reassessment updates the source row; failed reassessment preserves the last successful result. Index descriptions even when no usable assessment exists.
+
+Deactivate obsolete vector records instead of physically deleting them during normal indexing. Use `is_active` separately from source deletion fields, and exclude inactive records from normal search. Limit updates to changed units in the relevant job/field.
+
 Do not re-embed unchanged semantic units. Preserve both `is_deleted` and `deleted_at` and propagate deletion to every unit belonging to a job. See the indexing and data-semantic contracts for their relationship.
 
 ---
@@ -243,6 +247,8 @@ Important distinctions include:
 - `technical_bar` vs `tech_bar_fit`
 - source evidence vs assessment conclusions
 
+Use the verified Copilot mapping in `docs/data_semantics.md`: human `jobs.user_decision` and model `assessments.decision` are distinct; evidence anchors are JSON objects. The source has no target soft-deletion fields or native source-version counter. Keep those gaps explicit and do not query absent columns or silently migrate the source.
+
 If the physical schema contains conflicting names or undocumented fields, inspect the schema and flag the discrepancy rather than guessing.
 
 ---
@@ -256,7 +262,7 @@ Before adding a dependency:
 3. Prefer mature, narrowly scoped libraries.
 4. Avoid introducing infrastructure-specific coupling into domain contracts.
 
-A change of vector database, embedding provider or orchestration framework should not require rewriting the retrieval or data-semantic contracts.
+A change of vector database, embedding provider or orchestration framework should not require rewriting the retrieval or data-semantic contracts. Qdrant and Ollama remain potential candidates, not selected dependencies.
 
 ---
 

@@ -1,4 +1,4 @@
-version: 3
+version: 4
 
 description: >
   Behavioural test cases for the SQLite-to-vector indexing pipeline.
@@ -35,6 +35,7 @@ indexing_policy:
     - unit_type
     - content_hash
     - source_version
+    - is_active
     - is_deleted
     - deleted_at
     - source_updated_at
@@ -48,8 +49,10 @@ indexing_policy:
 
   optional_unit_metadata:
     - unit_position
+    - source_reference
 
   searchable_defaults:
+    is_active: true
     is_deleted: false
     deleted_at: null
 
@@ -84,6 +87,8 @@ indexing_policy:
     skip_empty_content: true
     parse_list_fields: true
     embed_serialized_list: false
+    evidence_anchor_objects: labelled_evidence_and_supports_text
+    preserve_anchor_source_reference: true
     parse_bullet_fields: true
     bullet_markers: ["-", "*"]
     bullet_markers_at_line_start_only: true
@@ -105,6 +110,26 @@ indexing_policy:
     deleted_requires_timestamp: true
     inconsistent_state: explicit_error_exclude_from_search
     exclude_deleted_from_default_search: true
+
+  assessment_selection:
+    per_job: zero_or_one_current
+    usable_status: ASSESSED
+    reassessment_updates_same_row: true
+    failed_reassessment_preserves_success: true
+
+  obsolescence:
+    action: deactivate
+    active_metadata: is_active
+    physically_retain_inactive_vectors: true
+    exclude_inactive_from_default_search: true
+    historical_query_support: false
+
+  fixture_conventions:
+    representation: normalized_index_input
+    assessment_status_when_omitted: ASSESSED
+    is_active_when_omitted: true
+    source_version_examples: synthetic_revision_tokens_not_upstream_columns
+    deletion_examples: target_contract_not_current_upstream_schema
 
   incremental_indexing:
     enabled: true
@@ -484,13 +509,13 @@ cases:
     expected:
       unchanged_units: 2
       new_units: 1
-      removed_units: 0
+      deactivated_units: 0
       embedding_calls: 1
 
 
   - id: remove_single_list_item
     description: >
-      Removing a list item removes or deactivates the corresponding
+      Removing a list item deactivates the corresponding
       searchable semantic unit without re-embedding remaining items.
 
     existing:
@@ -514,17 +539,17 @@ cases:
 
     expected:
       unchanged_units: 2
-      removed_units: 1
+      deactivated_units: 1
       new_units: 0
       embedding_calls: 0
 
-      removed_content:
+      deactivated_content:
         - Long working hours.
 
 
   - id: change_single_list_item
     description: >
-      Replacing one list item creates the new semantic unit and removes
+      Replacing one list item creates the new semantic unit and deactivates
       the old one while leaving unrelated items untouched.
 
     existing:
@@ -547,7 +572,7 @@ cases:
 
     expected:
       unchanged_units: 1
-      removed_units: 1
+      deactivated_units: 1
       new_units: 1
       embedding_calls: 1
 
@@ -714,20 +739,23 @@ cases:
       source_version: 1
 
       evidence_anchors:
-        - >
-          The role explicitly asks for experience taking GenAI
-          applications from prototype into production.
-        - >
-          The hiring manager owns a team combining solution architects
-          and applied AI engineers.
-        - >
-          The job description states that the successful candidate will
-          work directly with strategic enterprise customers.
+        - source_reference: A-PRODUCTION-01
+          evidence: Delivered a production GenAI application.
+          supports: Production delivery matches the role requirement.
+        - source_reference: A-TEAM-01
+          evidence: Led a team of data engineers and solution architects.
+          supports: Relevant multidisciplinary team leadership.
+        - source_reference: A-CLIENT-01
+          evidence: Delivered solutions directly with enterprise customers.
+          supports: Relevant customer-facing delivery experience.
 
     expected:
       field_name: evidence_anchors
       unit_type: list_item
       semantic_units: 3
+      render_format: labelled_evidence_and_supports_text
+      source_reference_preserved: true
+      embed_serialized_object: false
 
 
   # ---------------------------------------------------------------------------
@@ -761,6 +789,7 @@ cases:
 
     expected:
       all_job_units:
+        is_active: false
         is_deleted: true
         deleted_at: "2026-10-01T12:00:00Z"
 
@@ -792,6 +821,7 @@ cases:
 
     expected:
       all_current_job_units:
+        is_active: true
         is_deleted: false
         deleted_at: null
 
@@ -985,12 +1015,12 @@ cases:
         - Exact individual sales target is unclear.
 
       evidence_anchors:
-        - >
-          The job description explicitly states ownership from technical
-          discovery through production deployment.
-        - >
-          The team works directly with the company's largest enterprise
-          customers.
+        - source_reference: A-DELIVERY-01
+          evidence: Owned technical discovery through production deployment.
+          supports: End-to-end delivery matches the mandate.
+        - source_reference: A-CUSTOMER-01
+          evidence: Delivered projects for strategic enterprise customers.
+          supports: Relevant enterprise customer engagement.
 
       job_description_fixture: long_job_description
 
@@ -1009,6 +1039,7 @@ cases:
         minimum_chunks: 2
 
       all_units_share:
+        is_active: true
         job_id: job_031
         is_deleted: false
         deleted_at: null
@@ -1016,6 +1047,7 @@ cases:
       semantic_retrieval_can_filter_by:
         - field_name
         - job_id
+        - is_active
         - is_deleted
 
       job_level_reconstruction_possible: true
@@ -1136,7 +1168,7 @@ cases:
         - Own production delivery.
     expected:
       unchanged_units: 1
-      removed_units: 1
+      deactivated_units: 1
       new_units: 1
       embedding_calls: 1
 
@@ -1213,3 +1245,142 @@ cases:
       active_bullet_units: 6
       old_whole_field_units_active: 0
       migration_required: true
+
+  # Current-assessment and source-schema integration
+  - id: unassessed_job_keeps_description_units
+    description: A job with no assessment remains searchable through its description.
+    source:
+      job_id: job_044
+      assessment: null
+      job_description: Deliver applied AI systems to customers.
+    expected:
+      job_description_units: 1
+      assessment_units: 0
+      fabricated_assessment: false
+
+  - id: non_assessed_status_has_no_assessment_units
+    description: Initial pending, running or failed rows are not successful assessments.
+    sources:
+      - job_id: job_045
+        assessment_status: PENDING
+      - job_id: job_046
+        assessment_status: RUNNING
+      - job_id: job_047
+        assessment_status: FAILED
+    expected:
+      assessment_units: 0
+      job_description_units_still_allowed: true
+
+  - id: reassessment_updates_same_current_record
+    description: Successful reassessment updates the same row and only changed semantic content.
+    existing:
+      job_id: job_048
+      assessment_id: assessment_048
+      assessment_status: ASSESSED
+      technical_bar: Strong Python.
+      real_mandate: |
+        - Own prototypes.
+        - Build a team.
+    updated:
+      job_id: job_048
+      assessment_id: assessment_048
+      assessment_status: ASSESSED
+      technical_bar: Strong Python.
+      real_mandate: |
+        - Own production delivery.
+        - Build a team.
+    expected:
+      current_assessment_count: 1
+      new_units: 1
+      deactivated_units: 1
+      unchanged_units: 2
+      embedding_calls: 1
+      old_content_searchable: false
+
+  - id: failed_reassessment_preserves_last_success
+    description: A failed new attempt does not replace the current successful assessment.
+    existing:
+      job_id: job_049
+      assessment_id: assessment_049
+      assessment_status: ASSESSED
+      real_mandate: Own production delivery.
+    operation:
+      reassessment_attempt_status: FAILED
+      canonical_assessment_unchanged: true
+    expected:
+      current_assessment_count: 1
+      existing_units_remain_active: true
+      embedding_calls: 0
+      assessment_staleness_checked_separately: true
+
+  - id: changed_job_leaves_other_job_untouched
+    description: A field change for job A does not re-embed job B or unrelated fields.
+    existing:
+      jobs:
+        - job_id: job_050
+          assessment_id: assessment_050
+          technical_bar: Strong Python.
+        - job_id: job_051
+          assessment_id: assessment_051
+          technical_bar: Strong SQL.
+    updated:
+      job_id: job_050
+      assessment_id: assessment_050
+      technical_bar: Strong Python and production AI.
+    expected:
+      embedding_calls: 1
+      deactivated_units_for_job_050: 1
+      job_051_embedding_calls: 0
+      job_051_metadata_unchanged: true
+
+  - id: source_timestamp_collision_uses_hashes
+    description: Source timestamps have second precision and are not unique revision numbers.
+    existing:
+      job_id: job_052
+      assessment_id: assessment_052
+      source_updated_at: "2026-10-03T12:00:00Z"
+      real_mandate: Own prototypes.
+    updated:
+      job_id: job_052
+      assessment_id: assessment_052
+      source_updated_at: "2026-10-03T12:00:00Z"
+      real_mandate: Own production delivery.
+    expected:
+      semantic_change_detected: true
+      embedding_calls: 1
+      timestamp_equality_implies_unchanged: false
+
+  - id: physically_missing_source_job
+    description: A confirmed source deletion deactivates units without inventing a deletion timestamp.
+    existing:
+      job_id: job_053
+      is_deleted: false
+      deleted_at: null
+      is_active: true
+    source:
+      complete_snapshot_succeeded: true
+      job_present: false
+    expected:
+      all_job_units:
+        is_active: false
+      default_semantic_search_results: 0
+      failure_category: source_record_missing
+      fabricated_deleted_at: false
+      physical_vector_deletion_required_immediately: false
+
+  - id: obsolete_scalar_revision_is_deactivated
+    description: Changed scalar content retains an inactive prior record and one active replacement.
+    existing:
+      job_id: job_054
+      assessment_id: assessment_054
+      technical_bar: Strong Python.
+    updated:
+      job_id: job_054
+      assessment_id: assessment_054
+      technical_bar: Strong Python and cloud architecture.
+    expected:
+      active_scalar_records: 1
+      deactivated_units: 1
+      prior_vector_physically_retained: true
+      embedding_calls: 1
+      old_content_searchable: false

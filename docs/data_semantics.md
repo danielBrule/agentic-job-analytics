@@ -10,6 +10,31 @@ Before changing queries or retrieval logic, inspect the physical SQLite schema a
 
 ---
 
+## Verified Copilot source mapping
+
+The authoritative shared schema and field definitions are [Copilot's data model](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/docs/data-model.md). This integration was checked against code at commit `58c46bbfbed41d469b139cf5db054f7002582085`. The notes below specify analytics use and mapping; they do not redefine Copilot business semantics.
+
+| Analytics identifier or concept | Physical source |
+|---|---|
+| `job_id` | `jobs.id`; referenced by `assessments.job_id` and `llm_calls.job_id` |
+| `assessment_id` | `assessments.id` |
+| Human application decision | `jobs.user_decision` |
+| Model recommendation | `assessments.decision` |
+| Job source update | `jobs.updated_at` |
+| Assessment source update | `assessments.updated_at` |
+| Inputs used for the assessment | `assessments.source_job_updated_at` |
+| Current assessment-input revision | `jobs.assessment_input_updated_at` |
+| Current assessment prompt version | `assessments.prompt_version` |
+| Historical call prompt version | `llm_calls.version_metadata["prompt_version"]` |
+
+Job and assessment row timestamps use UTC without a timezone suffix and with whole-second precision. Interpret them as UTC, not workstation-local time. Timestamps are change-detection hints, not unique version counters; content hashes must detect semantic changes even when timestamps match.
+
+The checked source has no native `source_version`, `is_deleted` or `deleted_at` columns. `source_version` in the derived index is an opaque revision token computed from a deterministic source projection, not an assumed integer source column. Keep the two deletion fields as target requirements and resolve the source integration before relying on them.
+
+Evidence: [job model](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/repositories/models/job.py), [assessment model](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/repositories/models/assessment.py), [assessment persistence](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/services/assessment_persistence.py), [assessment domain](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/domain/assessment.py), [job domain](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/domain/job.py), [call recording](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/services/assessment_execution.py).
+
+---
+
 ## 1. Core entities
 
 The current evaluation contract references three main logical tables:
@@ -38,7 +63,7 @@ Represents observability records for LLM operations used by the application.
 
 ### `job_id`
 
-Stable identifier for a job.
+Stable identifier for a job: physical `jobs.id`, exposed as `job_id` in semantic units.
 
 Used as the main join and reconstruction key across relational and semantic retrieval.
 
@@ -60,7 +85,7 @@ Stored location for the job.
 
 Use structured filtering for exact country/city constraints.
 
-The physical representation and normalisation rules should be verified in the schema before implementing country-level logic.
+The checked source stores the enum values `UK`, `FR` and `CH`. Use `FR` for France; do not infer countries from free-text city matching.
 
 ### `date_added`
 
@@ -72,7 +97,7 @@ Used for time-series and period filtering.
 
 Current application/process status.
 
-The exact status vocabulary should be treated as schema/domain data rather than inferred from free text where possible.
+The checked source stores free text, not a controlled status enum. Do not invent a canonical interview/closed vocabulary; define and evaluate any normalization explicitly before using it for those questions.
 
 ### `next_action`
 
@@ -113,19 +138,39 @@ Both fields are required by the target deletion contract:
 
 Deleted jobs are excluded from normal retrieval. Indexing propagates both values to all units for the job. Inconsistent values produce an explicit `inconsistent_deletion_state` error and exclude the job from normal retrieval; do not silently repair canonical data.
 
-These are target requirements, not a claim about the current physical source schema. Verify the authoritative Copilot schema before implementation and flag absent or incompatible fields. This documentation change does not migrate the source database.
+The checked Copilot model has neither field; its job service performs physical deletion. This is an explicit source-integration gap. Keep both fields as target requirements, but do not generate SQL against absent columns, infer deletion from application closure, or modify the source from this agent. Resolve the upstream schema/adapter strategy before implementing soft-deletion support.
+
+For a job confirmed missing from a complete source snapshot, deactivate its derived units and classify it as `source_record_missing`. Do not invent a canonical deletion timestamp. A failed or partial source read is not evidence of deletion.
 
 ### Source freshness
 
-Retain source versions and source update timestamps for job and assessment changes. `source_updated_at` on a semantic unit refers to its owning source record, not the time it was indexed. A job-description unit follows the job; an assessment-derived unit follows its assessment. Verify physical timestamp/version columns before implementing the mapping.
+`source_updated_at` on description units maps to `jobs.updated_at`; on assessment units it maps to `assessments.updated_at`. These are synchronization hints. Content hashes control re-embedding; an administrative timestamp change alone does not require new embeddings. Compute `source_version` as an opaque deterministic source-revision token because the upstream has no native version counter. `indexed_at` is index synchronization time, not source freshness.
 
 ---
 
 ## 3. `assessments` semantics
 
+### Current assessment relationship
+
+For normal analytics and indexing:
+
+```text
+one job -> zero or one current assessment
+```
+
+The upstream database enforces a unique `assessments.job_id`. Successful reassessment updates the existing row, preserving its ID; it does not append another assessment. A failed reassessment preserves the previous successful row. Therefore "last assessment" means the latest successful result retained in that current row, not the last attempted call.
+
+Rows may have `PENDING`, `RUNNING`, `ASSESSED` or `FAILED` status. Only `ASSESSED` supplies usable assessment conclusions, scores and semantic units. A job with no usable assessment still participates in job-only questions and job-description retrieval. Do not fabricate an assessment or treat a pending/failed row as a zero score.
+
+Use a left join when the question includes unassessed jobs; require `ASSESSED` when the question depends on assessment values. Detect multiple current rows as a source-schema violation instead of multiplying counts or choosing one arbitrarily.
+
+A retained successful assessment may be stale after a relevant job edit. Compare `assessments.source_job_updated_at` with `jobs.assessment_input_updated_at` and make staleness explicit when it affects the answer. This is separate from vector-index staleness. Administrative edits do not automatically invalidate the assessment.
+
+`llm_calls` retains individual historical invocations and can contain many rows per job. Do not interpret those rows as historical assessment records. Joining them to assessments provides the current role classification, not the classification at the time of each call.
+
 ### `assessment_id`
 
-Stable identifier for an assessment where present.
+Stable identifier for the current assessment: physical `assessments.id`, exposed as `assessment_id` in semantic units.
 
 Semantic units derived from assessment fields should retain this identifier.
 
@@ -199,7 +244,7 @@ Stored as scalar text formatted with bullets and indexed per meaningful bullet.
 
 ## 4. List-valued assessment fields
 
-The following fields are stored as serialized string lists and should be parsed as lists before processing:
+The following fields are stored as JSON arrays and should be parsed before processing. The first four contain strings; `evidence_anchors` contains objects:
 
 ```text
 strong_fit_signals
@@ -282,13 +327,9 @@ An evidence gap should reduce confidence. It should not be silently converted in
 
 ### `evidence_anchors`
 
-Specific evidence supporting assessment conclusions.
+In the checked source this is a JSON array of objects, not strings. Each object contains `source_reference`, `evidence` and `supports`. It records a traceable Document A candidate-profile fact and the assessment inference that fact supports. Do not present it as a verbatim job-description excerpt.
 
-Anchors should remain traceable to their assessment/job.
-
-They are evidence snippets or evidence statements, not a replacement for the original job description.
-
-Because the aggregate field can be large, each anchor is indexed as a separate semantic unit.
+Keep each anchor traceable to its assessment/job and source reference. Derive one searchable text unit per object with explicitly labelled evidence and support statements, retaining the source reference as metadata. The canonical object stays in SQLite. See `docs/indexing.md` for deterministic rendering.
 
 ---
 
@@ -296,7 +337,7 @@ Because the aggregate field can be large, each anchor is indexed as a separate s
 
 ### `primary_role_family`
 
-Primary classification of the role.
+Primary classification of the role, stored as an installation-specific configured lane ID.
 
 Used for structured grouping/analytics.
 
@@ -304,7 +345,7 @@ Used for structured grouping/analytics.
 
 Secondary classification where a role spans more than one family.
 
-Role-family labels are explicit classifications and should not automatically replace semantic similarity search.
+Role-family identifiers use the configured lane vocabulary from the upstream validated routing set; they are not a universal enum. Labels are explicit classifications and should not automatically replace semantic similarity search.
 
 For example, a query for roles "similar to Forward Deployed Engineering" may use semantic evidence even when role-family labels are available.
 
@@ -347,48 +388,30 @@ Do not infer seniority fit solely from title when this structured field is avail
 
 ### Scale
 
-The golden questions use thresholds such as `>= 8`, but the precise allowed scale and null semantics should be verified against the physical schema/assessment contract before adding validation logic.
+The source domain validates integer scores from 0 to 10, including fit, priority, technical-bar fit and seniority fit. Missing values in incomplete assessments mean unavailable, not zero. Interview-probability bounds/confidence and evidence confidence also use this scale.
 
 ---
 
 ## 7. Decision fields
 
-The evaluation contract currently references both:
+These are distinct source concepts, not aliases:
 
-```text
-user_decision
-decision
-```
+| Field | Meaning | Stored values |
+|---|---|---|
+| `jobs.user_decision` | Human decision to pursue the opportunity | `UNDECIDED`, `PURSUE`, `DO_NOT_PURSUE` |
+| `assessments.decision` | Model assessment recommendation | `GO`, `CAUTION`, `STRETCH`, `NO_GO` |
 
-and values such as:
-
-```text
-DO_NOT_PURSUE
-GO
-NO_GO
-```
-
-This is a known naming inconsistency in the current contract.
-
-Before implementation:
-
-1. inspect the physical schema
-2. identify the canonical decision column and vocabulary
-3. normalise the documentation/tests rather than supporting ambiguous aliases indefinitely
-
-Do not guess that `decision` and `user_decision` are different concepts without schema evidence.
+Use the human field for "I decided not to pursue" and the assessment field for "classified GO/NO_GO". Display labels in upstream documentation/UI may differ in capitalization and punctuation from stored enum values. Preserve the stored values in exact filters.
 
 ---
 
 ## 8. `material_mandate_dimensions`
 
-Represents dimensions of the mandate used for qualitative analysis of areas of strength/weakness.
+The source stores a JSON array of structured objects with `id`, `description`, `importance`, `evidence_strength`, `evidence_anchor_refs`, `should_shape_cv` and `support_categories`.
 
-The exact physical representation and controlled vocabulary should be verified before implementation.
+Parse it deterministically before qualitative synthesis. `importance` uses 0–10; `evidence_strength` is `DIRECT`, `ADJACENT`, `WEAK` or `NONE`. The upstream domain contract defines the support-category vocabulary and validates evidence references. Follow it rather than inferring meaning from object key names.
 
-If stored as structured JSON/list data, prefer deterministic parsing before LLM synthesis.
-
-Do not assume it has the same indexing behaviour as the documented semantic list fields unless explicitly added to the indexing contract.
+The field remains available for structured/qualitative analytics. It has no semantic-indexing policy unless explicitly added to that contract. CV-related annotations do not bring CV generation into this project's scope.
 
 ---
 
@@ -460,11 +483,11 @@ ASSESSMENT
 
 ### `resolved_model`
 
-Actual model used after configuration/routing resolution.
+Actual model used after configuration/routing resolution. It is nullable; retain an explicit unresolved category rather than inventing a model. `requested_model` and `provider` are available separately.
 
 ### `total_tokens`
 
-Total token usage recorded for the call.
+Total token usage reported for the call. `NULL` means unreported; zero means explicitly reported as zero. Include reported usage from failed calls as well as successes and report missing-usage coverage. Do not add cache-read/write counts again to `total_tokens`.
 
 ### `pipeline_step`
 
@@ -492,7 +515,7 @@ Prefer categories over relying only on free-text exception messages.
 
 Version information associated with the call.
 
-The evaluation contract also references `prompt_version`; confirm whether this is a dedicated field or represented inside version metadata.
+For historical assessment calls, extract `prompt_version` from `llm_calls.version_metadata`; `assessments.prompt_version` describes only the current result. Compare historical versions from their own call records, never by copying the current assessment version onto all calls.
 
 ---
 

@@ -22,9 +22,17 @@ Do not require every request to enter a rigid STRUCTURED, SEMANTIC or HYBRID rou
 
 Capabilities may execute independently, sequentially or in parallel. Choose the simplest correct plan based on constraints and dependencies. Clarification, out-of-scope handling and refusal are behaviours, not retrieval tools.
 
-See [architecture.md](docs/architecture.md) for LangGraph state and provider boundaries.
+See [architecture.md](architecture.md) for LangGraph state and provider boundaries.
 
 ---
+
+## Current assessment scope
+
+Use zero or one current assessment per job for assessment-dependent analytics and reconstruction. In the checked source, successful reassessment updates the same row; only status `ASSESSED` supplies usable scores/conclusions. Preserve unassessed jobs in job-only queries and description-based semantic search. Do not join historical attempts as if they were extra current assessments.
+
+The exact identifiers, status/decision values and source freshness mapping are defined in [data_semantics.md](data_semantics.md). If a successful assessment is stale relative to the current job inputs, expose that limitation when it affects the answer rather than presenting it as newly assessed.
+
+LLM usage analysis may include all relevant historical call rows. Their model/prompt versions come from the calls themselves. Joining calls to assessments attaches current role classifications and must not be represented as historical assessment snapshots.
 
 ## 2. Structured query capability
 
@@ -401,13 +409,16 @@ Normal retrieval excludes deleted jobs.
 The vector index must apply:
 
 ```text
+is_active = true
 is_deleted = false
 deleted_at IS NULL
 ```
 
 by default.
 
-Both deletion fields must be consistent with the canonical record. Conflicting state is an explicit error and must not allow a job into normal retrieval. See `docs/data_semantics.md`.
+Inactive/obsolete index records are excluded even when the job itself is not deleted. The checked source does not have the target soft-deletion fields; source compatibility and confirmed missing-record handling are defined in `docs/data_semantics.md`. Reject hits whose current parent job or usable assessment no longer exists, regardless of stale vector metadata.
+
+Both deletion fields must be consistent with the canonical record when supplied by the agreed source integration. Conflicting state is an explicit error and must not allow a job into normal retrieval. See `docs/data_semantics.md`.
 
 If vector content is stale relative to a newer SQLite source version or source timestamp, use the current SQLite record and do not present stale indexed text as current evidence.
 

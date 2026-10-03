@@ -1,4 +1,4 @@
-version: 4
+version: 5
 
 description: >
   Golden evaluation questions for Agentic Job Analytics.
@@ -10,6 +10,23 @@ architecture_contract:
   semantic_index: vector_db
   semantic_index_is_derived: true
   agent_source_access: read_only
+
+source_data_contract:
+  authoritative_schema: docs/data_semantics.md
+  assessments_per_job: zero_or_one_current
+  usable_assessment_status: ASSESSED
+  job_description_search_without_assessment: true
+  human_decision_field: jobs.user_decision
+  model_decision_field: assessments.decision
+  score_range: [0, 10]
+  job_primary_key: jobs.id
+  assessment_primary_key: assessments.id
+  historical_prompt_versions_source: llm_calls.version_metadata.prompt_version
+  notes:
+    - Job-only questions retain jobs without successful assessments.
+    - Assessment-dependent questions use only the current successful assessment per job.
+    - LLM call rows are historical invocations; do not replace their versions with the current assessment version.
+    - Soft-deletion fields remain a target integration requirement absent from the checked Copilot schema.
 
 capabilities:
   - structured_query
@@ -351,12 +368,15 @@ questions:
     question: "Pour les appels ASSESSMENT, comment le taux d’échec et la latence ont-ils évolué entre les deux dernières versions de prompt enregistrées ?"
     expected_capabilities: [structured_query, synthesis]
     expected_structured_sources:
-      tables: [llm_calls, assessments]
-      fields: [operation, version_metadata, prompt_version, status, duration_seconds]
+      tables: [llm_calls]
+      fields: [operation, version_metadata, started_at, status, duration_seconds]
     expected_behavior: version_comparison
     expected_constraints:
       - operation == ASSESSMENT
       - compare_latest_two_prompt_versions
+    notes:
+      - Extract prompt_version from each call version_metadata, not the current assessment row.
+      - Identify the two latest recorded prompt versions using call chronology.
 
   - id: q26
     category: llmops

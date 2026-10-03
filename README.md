@@ -13,9 +13,9 @@ LangGraph provides orchestration. LangSmith provides tracing, datasets and evalu
 
 SQLite is initially the canonical source of truth. SQL handles exact facts, filters, joins, rankings and aggregations. A derived, rebuildable vector index supports conceptual retrieval.
 
-The agent composes structured query, semantic retrieval and synthesis capabilities independently, sequentially or in parallel. Semantic units are consolidated by job ID and enriched with current SQLite context before answering.
+The agent composes structured query, semantic retrieval and synthesis capabilities independently, sequentially or in parallel. Semantic units are consolidated by job ID and enriched with current SQLite context before answering. Assessment-dependent analytics uses zero or one current successful assessment per job.
 
-Indexing is incremental, idempotent, version-aware and deletion-aware. Bullet-formatted assessment text, parsed list items and job-description chunks retain source provenance.
+Indexing is incremental, idempotent, version-aware and deletion-aware. Obsolete vectors are deactivated and excluded from normal search. Bullet-formatted assessment text, parsed list items and job-description chunks retain source provenance.
 
 ## Contracts
 

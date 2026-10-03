@@ -13,6 +13,8 @@ CV generation and automatic applications are outside the initial scope. The appl
 - Send only the information required for the operation to configured external services and only data the user is authorised to process through those services.
 - Review and redact logs, traces, datasets and exported results before sharing. Redacting credentials does not remove personal or career information.
 
+Inactive vectors still retain potentially sensitive derived content. Deactivation removes them from normal search; it does not erase that content or provide a historical-data guarantee. Retention and physical cleanup must be decided separately.
+
 ## External services and tracing
 
 The project supports configurable generative models, embedding providers and infrastructure. Data transmission follows the effective configuration, including fallback models and model-based evaluators; it is not limited to OpenAI.

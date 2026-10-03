@@ -45,13 +45,15 @@ See [retrieval_contract.md](retrieval_contract.md) for runtime behaviour, includ
 
 Use small ports and adapters around external infrastructure and models. Configuration selects implementations; graph nodes depend on interfaces rather than importing provider-specific clients.
 
-| Boundary | Initial or experimental implementation | Possible later substitution |
+| Boundary | Confirmed direction | Potential implementations or future substitutions |
 |---|---|---|
-| RelationalStore | SQLiteStore | PostgresStore |
-| VectorStore | QdrantVectorStore | pgvector, Pinecone or Azure AI Search |
-| EmbeddingProvider | Hosted or local embedding provider | Another embedding model/provider |
-| ModelProvider | Hosted provider or Ollama | vLLM or another hosted provider |
+| RelationalStore | SQLite initially | Postgres later |
+| VectorStore | Provider not selected | Qdrant, pgvector, Pinecone or Azure AI Search |
+| EmbeddingProvider | Provider/model not selected | Hosted or local embedding provider |
+| ModelProvider | Providers/runtimes not selected | Hosted APIs, Ollama or vLLM |
 | Observability/evaluation boundary | LangSmith | Narrow isolation where it helps testing |
+
+Qdrant and Ollama are potential candidates, not selected defaults or dependencies. Assess the service requirements, local hardware and measured trade-offs before selecting implementations. LangGraph and LangSmith are deliberate learning choices; vector storage, local inference runtime and model selections remain open.
 
 These are design directions, not a requirement to implement every adapter. Keep interfaces capability-oriented and introduce only methods that actual use cases need. Document capabilities that a replacement service cannot support; configuration changes alone do not guarantee backend equivalence.
 
@@ -68,7 +70,7 @@ An illustrative configuration:
 ```yaml
 models:
   local_candidate:
-    provider: ollama
+    provider: ollama  # Potential example only; runtime/provider not selected.
     model: chosen-local-model
   hosted_candidate:
     provider: hosted
@@ -141,10 +143,10 @@ Canonical relational data
   -> chunk long descriptions where appropriate
   -> compare content and configuration versions
   -> embed new/changed units
-  -> upsert or deactivate/remove units
+  -> activate replacements and deactivate obsolete units
 ```
 
-Support idempotent replay, source and assessment updates, deletion/restoration, freshness checks, selective re-indexing and full rebuilds. No real-time CDC is required initially.
+Support idempotent replay, source and assessment updates, deletion/restoration, freshness checks, selective re-indexing and full rebuilds. Only the current successful assessment for each job contributes assessment units. Reassessment can change content while retaining the same assessment ID. Normal indexing deactivates obsolete records; inactive vectors remain excluded from search through `is_active = false`. No real-time CDC is required initially.
 
 See [indexing.md](indexing.md) for unit granularity, identity, provenance and migration rules. See [data_semantics.md](data_semantics.md) for source meaning and deletion state.
 
@@ -202,4 +204,4 @@ When a material conflict prevents satisfying them together, present feasible opt
 
 Equal importance does not make existing contracts optional. If an option requires changing a contract, identify the change explicitly and obtain the human's decision before implementing it. Do not silently trade away read-only safeguards or evidence requirements.
 
-Before implementation, reconcile the physical source schema with documented decision vocabularies, score scales, location/status representations and timestamp/version fields. Define the source of the candidate technical profile for profile-similarity questions. Do not silently invent schema or profile facts.
+The checked Copilot source mapping, decision vocabularies, score scales, locations, current-assessment relationship and timestamps are documented in [data_semantics.md](data_semantics.md). Two integration facts remain explicit: the source lacks the target `is_deleted`/`deleted_at` fields and a native source-version counter. Resolve soft-deletion support before implementation; derive revision tokens without mutating the canonical source. Application closure and interview-stage semantics remain unnormalised free text. Define the source of the candidate technical profile for profile-similarity questions. Do not silently invent schema or profile facts.

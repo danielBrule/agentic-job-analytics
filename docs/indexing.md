@@ -38,14 +38,22 @@ compare with index state / manifest
   │
   ├── unchanged ──────────► reuse
   ├── new ────────────────► embed + insert
-  ├── changed ────────────► embed + update
-  └── removed/deleted ────► deactivate/remove
+  ├── changed ────────────► embed replacement + deactivate previous
+  └── removed/deleted ────► deactivate
   │
   ▼
 vector index
 ```
 
 ---
+
+## Current source selection
+
+Extract each job with zero or one current successful assessment, as mapped in [data_semantics.md](data_semantics.md). The checked Copilot source updates the same assessment row on successful reassessment and preserves it on failure. Only `ASSESSED` rows supply assessment-derived units; job descriptions remain indexable without an assessment.
+
+Compare all currently expected units for the affected job/field with the manifest. Reassessment may leave the same `assessment_id` while changing content. Reuse unchanged units; deactivate units that no longer belong to the current successful result. Never make multiple assessment results active for one job.
+
+A field change for job A does not re-embed job B or unrelated fields. Changes to embedding configuration or indexing rules may intentionally affect a broader set.
 
 ## 2. Indexed fields
 
@@ -90,6 +98,19 @@ Example source:
 ```
 
 becomes two semantic units.
+
+### Evidence-anchor objects
+
+The checked source stores `evidence_anchors` as JSON objects with `source_reference`, `evidence` and `supports`, not as strings. Each anchor still produces one unit. Render its semantic text deterministically:
+
+```text
+Evidence: <evidence>
+Supports: <supports>
+```
+
+Keep `source_reference` as metadata and preserve the complete canonical object in SQLite. `evidence` is candidate-profile evidence from Document A; `supports` is its assessment interpretation. Do not relabel either as a job-description quote or embed serialized JSON. Empty/malformed required values are explicit parsing errors.
+
+For anchor identity, include `source_reference` as well as rendered content when distinct references would otherwise collide. Exact duplicate anchors within the same job/assessment/field may be deduplicated. Metadata-only changes can reuse embeddings when rendered content is unchanged.
 
 ### Long-form field
 
@@ -136,6 +157,7 @@ content
 content_hash
 source_version
 source_updated_at
+is_active
 is_deleted
 deleted_at
 indexed_at
@@ -154,6 +176,7 @@ Where useful:
 
 ```text
 unit_position
+source_reference
 ```
 
 Allowed logical `unit_type` values:
@@ -169,9 +192,9 @@ chunk
 
 Keep one logical metadata vocabulary: `field_name` identifies the source field, `unit_type` identifies its representation, and `semantic_unit_id` identifies the unit. Description chunks also carry `unit_position`. These fulfil document-type and chunk-ID provenance needs without parallel aliases.
 
-`source_updated_at` follows the owning job or assessment source record; retain `source_version` for explicit version checks. `deleted_at` is the canonical job deletion timestamp, including on assessment-derived units. `indexed_at` records when a unit's indexed state was last synchronized and must not be used as evidence of source freshness.
+`source_updated_at` maps to `jobs.updated_at` or `assessments.updated_at`, according to the owning record. The source has no native `source_version` counter; compute an opaque deterministic source-revision token. Whole-second timestamps are not unique versions, so semantic content hashes must catch changes even when timestamps match. `deleted_at` is the canonical job deletion timestamp, including on assessment-derived units. `indexed_at` records when a unit's indexed state was last synchronized and must not be used as evidence of source freshness.
 
-`index_schema_version` is the document/semantic-unit schema version. `embedding_model` identifies the model and `embedding_version` tracks model/configuration revisions. If a provider exposes a model revision, include it in that configuration's recorded provenance. Verify source timestamp/version mappings against the authoritative schema before implementation.
+`index_schema_version` is the document/semantic-unit schema version. `embedding_model` identifies the model and `embedding_version` tracks model/configuration revisions. If a provider exposes a model revision, include it in that configuration's recorded provenance. The verified mappings and remaining deletion gap are documented in `docs/data_semantics.md`.
 
 ---
 
@@ -219,7 +242,19 @@ Conceptually:
 job_id + assessment_id + field_name + normalized_content_hash
 ```
 
-Bullet position and marker style are not identity. Reordering bullets or replacing `-` with `*` must not force re-embedding. A changed bullet removes/deactivates its previous unit and creates a new one. Nonempty preamble or unmarked fallback text uses scalar identity.
+Bullet position and marker style are not identity. Reordering bullets or replacing `-` with `*` must not force re-embedding. A changed bullet deactivates its previous record and creates a new active one. Nonempty preamble or unmarked fallback text uses scalar identity.
+
+### Active and obsolete records
+
+`is_active` indicates whether an indexed record belongs to the current semantic projection and embedding/index configuration. It is separate from `is_deleted`, which describes the parent job's source deletion state. An obsolete bullet for an undeleted job has `is_active = false` while the job remains `is_deleted = false`.
+
+When semantic content changes, prepare the replacement and deactivate the previous vector record. Removed bullets/items, superseded scalar records and old schema/model records are deactivated rather than physically deleted during normal indexing. Keep exactly one active record per current semantic unit and configuration.
+
+The scalar semantic-unit identity remains stable. Storage-level record IDs must distinguish its content/configuration revisions, for example using the logical unit ID, content hash and embedding/index versions. Do not overwrite the only prior record when the required outcome is deactivation; provider-specific record IDs remain an adapter concern.
+
+Publish the replacement and retire its predecessor as one logical handover where supported. Failed embedding/upsert must not activate an incomplete replacement. Runtime freshness checks still prevent old indexed text from being presented as current evidence while synchronization is incomplete.
+
+Inactive vectors may be retained for inspection and possible reuse. This does not guarantee historical reconstruction: the canonical source retains only the current assessment. Historical querying and cleanup/retention policy are separate future decisions. Do not automatically reactivate every inactive vector when a job is restored; activate only units matching the current source and configuration.
 
 ### Job-description chunk
 
@@ -264,7 +299,7 @@ assessment_id
 field_name
 ```
 
-identical normalised list items or bullets should not produce duplicate active semantic units.
+identical normalised string-list items or bullets should not produce duplicate active semantic units. Object anchors preserve distinct source references as defined above.
 
 Identical text across different jobs remains separate because each unit belongs to a different parent entity.
 
@@ -297,6 +332,7 @@ unit_position
 content_hash
 source_version
 source_updated_at
+is_active
 is_deleted
 deleted_at
 indexed_at
@@ -332,7 +368,8 @@ update non-semantic metadata if required
 ### Changed scalar
 
 ```text
-embed changed technical_bar or unmarked fallback/preamble only
+embed replacement for changed technical_bar or unmarked fallback/preamble only
+activate replacement and deactivate previous record
 ```
 
 ### Added, removed, changed or reordered bullet
@@ -348,7 +385,7 @@ embed new item only
 ### Removed list item
 
 ```text
-deactivate/remove old item
+deactivate old item
 do not re-embed remaining items
 ```
 
@@ -379,7 +416,7 @@ Track three distinct version concepts.
 
 ### `source_version`
 
-Version of the canonical source record.
+Opaque derived revision token identifying the source state used for this unit. The checked upstream has no native version counter; the token must not be mistaken for a source column.
 
 Used to identify whether source state changed.
 
@@ -405,7 +442,7 @@ Use for controlled migrations when unit structure or indexing semantics change.
 
 Do not overload one version field to represent all three concepts.
 
-The change from one unit per assessment scalar to bullet-level units is an incompatible indexing-schema change. Increment `index_schema_version` during implementation and rebuild or migrate affected fields. Retire old whole-field units when replacing them with bullets; do not leave both representations active. This acceptance-file version is separate from the runtime index schema version.
+The change from one unit per assessment scalar to bullet-level units is an incompatible indexing-schema change. Increment `index_schema_version` during implementation and rebuild or migrate affected fields. Deactivate old whole-field units when replacing them with bullets; do not leave both representations active. This acceptance-file version is separate from the runtime index schema version.
 
 ---
 
@@ -426,15 +463,16 @@ Propagate both `is_deleted` and `deleted_at` from the canonical job to every uni
 Default vector search applies:
 
 ```text
+is_active = true
 is_deleted = false
 deleted_at IS NULL
 ```
 
-Physical vector removal can be deferred.
+Normal indexing deactivates records and retains their vectors; physical removal is a separate future cleanup decision. Correctness must not depend on physical deletion.
 
-Correctness must not depend on immediate physical deletion.
+If an unchanged deleted job is restored, its current units may be reactivated and their embeddings reused. Superseded units must remain inactive.
 
-If an unchanged deleted job is restored, its embeddings may be reused.
+The checked Copilot source does not yet implement soft deletion. For confirmed missing jobs, deactivate all units without inventing `deleted_at`; see the integration gap in `docs/data_semantics.md`. Complete source reconciliation must detect physical deletion as well as new/changed records. Failed or partial reads must not deactivate supposedly missing jobs.
 
 ---
 
@@ -454,6 +492,7 @@ job_id
 assessment_id
 field_name
 unit_type
+is_active
 is_deleted
 deleted_at
 source_version
