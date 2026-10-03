@@ -10,24 +10,23 @@ SQLite is the authoritative relational store. The vector database is a derived s
 
 ---
 
-## 1. Top-level classification
+## 1. Capability composition
 
-Every user request must first be classified as one of:
+Compose reusable capabilities according to the information required:
 
-```text
-STRUCTURED
-SEMANTIC
-HYBRID
-OUT_OF_SCOPE
-```
+- `structured_query`: authoritative relational retrieval and deterministic analysis.
+- `semantic_retrieval`: conceptual evidence retrieval from the derived index.
+- `synthesis`: grounded interpretation and evidence combination where needed.
 
-This classification describes the information-retrieval route.
+Do not require every request to enter a rigid STRUCTURED, SEMANTIC or HYBRID route. These labels may describe a plan for tracing or evaluation, but do not determine a fixed graph path. The sections below describe retrieval needs rather than mutually exclusive execution routes.
 
-`CLARIFICATION` and `REFUSAL` are separate behaviours that may occur before or after classification.
+Capabilities may execute independently, sequentially or in parallel. Choose the simplest correct plan based on constraints and dependencies. Clarification, out-of-scope handling and refusal are behaviours, not retrieval tools.
+
+See [architecture.md](docs/architecture.md) for LangGraph state and provider boundaries.
 
 ---
 
-## 2. STRUCTURED
+## 2. Structured query capability
 
 Use structured retrieval when the answer depends on explicit database values or deterministic relational operations.
 
@@ -59,13 +58,14 @@ Examples:
 
 - Use SQL.
 - SQL is read-only.
+- Model-generated SQL is untrusted: enforce read-only restrictions deterministically with database access restrictions and SQL validation, including write PRAGMAs and multiple statements.
 - Prefer SQL over Python for relational filtering, joins and aggregation.
 - Do not invoke semantic retrieval when structured data answers the question exactly.
 - LLM synthesis is optional and should only be used when interpretation is needed.
 
 ---
 
-## 3. SEMANTIC
+## 3. Semantic retrieval capability
 
 Use semantic retrieval when the request depends on conceptual similarity or meaning rather than exact stored values.
 
@@ -83,7 +83,8 @@ Semantic search retrieves semantic units, not whole jobs.
 
 A semantic unit can be:
 
-- a scalar assessment field
+- the complete `technical_bar` field or unmarked assessment text
+- one bullet from `role_snapshot`, `real_mandate` or `decision_reason`
 - one item from a list field
 - one chunk of a job description
 
@@ -119,9 +120,9 @@ synthesis
 
 ---
 
-## 4. HYBRID
+## 4. Combining capabilities
 
-Use hybrid retrieval when a question contains both structured constraints and semantic criteria.
+Compose structured query and semantic retrieval when a question contains both structured constraints and semantic criteria.
 
 Example:
 
@@ -153,7 +154,7 @@ parallel retrieval → merge
 structured seed set → semantic comparison
 ```
 
-Choose the route that is most selective, correct and simple for the case.
+Choose the composition that is most selective, correct and simple for the case.
 
 Where supported, push safe metadata filters into vector retrieval when doing so reduces the candidate set without changing semantics.
 
@@ -401,11 +402,14 @@ The vector index must apply:
 
 ```text
 is_deleted = false
+deleted_at IS NULL
 ```
 
 by default.
 
-If vector content is stale relative to a newer SQLite source version, use the current SQLite record and do not present stale indexed text as current evidence.
+Both deletion fields must be consistent with the canonical record. Conflicting state is an explicit error and must not allow a job into normal retrieval. See `docs/data_semantics.md`.
+
+If vector content is stale relative to a newer SQLite source version or source timestamp, use the current SQLite record and do not present stale indexed text as current evidence.
 
 ---
 
@@ -414,7 +418,7 @@ If vector content is stale relative to a newer SQLite source version, use the cu
 User-facing retrieval capability is evaluated by:
 
 ```text
-golden_questions.yaml
+evals/golden_questions.yaml
 ```
 
 That file is capability-based rather than route-implementation-based.
@@ -424,5 +428,10 @@ Changing the vector database, embedding model, chunk size, ANN algorithm or orch
 Index transformation behaviour is evaluated separately in:
 
 ```text
-indexing_cases.yaml
+evals/indexing_cases.yaml
 ```
+
+
+Use LangSmith traces, datasets, evaluators and experiments from the beginning. Measure planner/capability and tool selection, SQL correctness, semantic relevance, evidence completeness, groundedness, answer quality, latency, token usage, retries and fallback. Preserve the same user-facing questions across model/provider experiments; change them only when desired behaviour changes.
+
+Retries and fallback must be bounded and visible. An invalid SQL statement, failed tool or unsupported model output is an explicit failure, not permission to relax safeguards or fabricate evidence.

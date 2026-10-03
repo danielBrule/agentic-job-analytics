@@ -1,79 +1,36 @@
 # Agentic Job Analytics
 
-A small job-search analytics agent combining structured SQL retrieval with semantic retrieval over a derived vector index.
+A conversational, read-only analytics agent over job opportunities, assessments and LLM operation records.
 
-The repository is designed to stay simple locally while preserving production-relevant boundaries:
+This project has two equally important objectives:
 
-```text
-SQLite
-    canonical data
-       │
-       ├──────────────► structured SQL retrieval
-       │
-       └──► indexing pipeline ──► vector index ──► semantic retrieval
-                                      │
-                                      └──► job-level reconstruction
-```
+1. Build a credible, production-minded agentic analytics system.
+2. Gain hands-on experience with modern agentic AI engineering, with visible state transitions and measurable design trade-offs.
 
-## Core principles
+LangGraph provides orchestration. LangSmith provides tracing, datasets and evaluation experiments from the start. Small provider adapters keep external services replaceable while preserving direct exposure to these learning technologies.
 
-- SQLite is the canonical source of truth.
-- SQL handles deterministic relational questions.
-- The vector index handles semantic similarity over selected free-text fields.
-- Semantic retrieval operates on fine-grained semantic units and reconstructs results to jobs.
-- The runtime analytics agent is read-only.
-- Indexing is incremental, idempotent, version-aware and deletion-aware.
-- Retrieval behaviour and indexing behaviour are evaluated separately.
+## Data and retrieval
 
-## Repository contracts
+SQLite is initially the canonical source of truth. SQL handles exact facts, filters, joins, rankings and aggregations. A derived, rebuildable vector index supports conceptual retrieval.
+
+The agent composes structured query, semantic retrieval and synthesis capabilities independently, sequentially or in parallel. Semantic units are consolidated by job ID and enriched with current SQLite context before answering.
+
+Indexing is incremental, idempotent, version-aware and deletion-aware. Bullet-formatted assessment text, parsed list items and job-description chunks retain source provenance.
+
+## Contracts
 
 | File | Purpose |
 |---|---|
-| `AGENTS.md` | Instructions for coding agents working on this repository |
-| `docs/retrieval_contract.md` | Runtime routing, retrieval and answer behaviour |
-| `docs/data_semantics.md` | Meaning of tables and fields |
-| `docs/indexing.md` | SQLite-to-vector indexing architecture |
-| `golden_questions.yaml` | User-facing retrieval/evaluation cases |
-| `indexing_cases.yaml` | Indexing acceptance cases |
-
-## Runtime retrieval routes
-
-Every information request is classified as:
-
-```text
-STRUCTURED
-SEMANTIC
-HYBRID
-OUT_OF_SCOPE
-```
-
-Clarification and refusal are separate behaviours.
-
-See `docs/retrieval_contract.md`.
-
-## Semantic indexing
-
-Current policy:
-
-```text
-scalar assessment field
-    → one vector
-
-list assessment field
-    → one vector per meaningful list item
-
-job_description
-    → chunked vectors
-```
-
-See `docs/indexing.md`.
+| [AGENTS.md](AGENTS.md) | Coding-agent working instructions |
+| [docs/architecture.md](docs/architecture.md) | Learning objectives, service boundaries, model strategies and scope |
+| [docs/retrieval_contract.md](docs/retrieval_contract.md) | Capability composition, retrieval and answer behaviour |
+| [docs/data_semantics.md](docs/data_semantics.md) | Business meaning of entities and fields |
+| [docs/indexing.md](docs/indexing.md) | Relational-to-vector indexing design |
+| [evals/golden_questions.yaml](evals/golden_questions.yaml) | User-facing acceptance cases |
+| [evals/indexing_cases.yaml](evals/indexing_cases.yaml) | Indexing acceptance cases |
 
 ## Development
 
-Python is the default language for orchestration, indexing and application logic.
+Python handles orchestration, transformation and application logic; SQL handles deterministic relational operations. Tests and acceptance cases precede behavioural implementation.
 
-SQL is the default for relational filtering, joins, aggregation and canonical record retrieval.
-
-For non-trivial changes, the repository agent should propose an implementation plan, confirm contract-changing work with a human, write/update tests before code, then implement the smallest change satisfying the tests.
-
-See `AGENTS.md`.
+See [AGENTS.md](AGENTS.md) for the development workflow and [docs/architecture.md](docs/architecture.md) for the initial scope. These documents define the intended system; they do not imply that it is already implemented.

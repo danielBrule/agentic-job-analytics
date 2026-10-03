@@ -11,7 +11,7 @@ It is not a second source of truth.
 Executable acceptance cases live in:
 
 ```text
-indexing_cases.yaml
+evals/indexing_cases.yaml
 ```
 
 ---
@@ -28,7 +28,8 @@ extract changed records
   ▼
 normalise
   │
-  ├── scalar field ───────► semantic unit
+  ├── technical_bar ──────► scalar unit
+  ├── assessment bullet ─► bullet unit
   ├── list item ──────────► semantic unit
   └── job description ────► semantic chunks
   │
@@ -48,16 +49,25 @@ vector index
 
 ## 2. Indexed fields
 
-### Scalar semantic fields
+### Scalar semantic field
 
-Each populated field produces one semantic unit:
+The complete populated `technical_bar` field produces one unit, even when it contains several sentences or bullet-like formatting.
+
+### Bullet-formatted assessment text
+
+These fields remain scalar text in SQLite but produce one unit per meaningful bullet:
 
 ```text
 role_snapshot
 real_mandate
-technical_bar
 decision_reason
 ```
+
+Recognise `-` or `*` after optional indentation at the start of a line, followed by whitespace. Preserve line boundaries until parsing is complete. Remove the marker, then normalize each bullet's content. Do not split on internal hyphens or asterisks.
+
+Continuation lines belong to the preceding bullet. Treat whitespace-only marker content as empty. Preserve a nonempty preamble before the first bullet as one scalar unit. If there are no recognised markers, preserve the complete field as one scalar unit. Ignore empty units and deduplicate identical normalized bullets within the same job, assessment and field.
+
+Do not use an LLM for bullet parsing or split these short fields by arbitrary character limits. Retrieve parent context when a bullet is insufficient on its own.
 
 ### List semantic fields
 
@@ -125,7 +135,10 @@ unit_type
 content
 content_hash
 source_version
+source_updated_at
 is_deleted
+deleted_at
+indexed_at
 embedding_model
 embedding_version
 index_schema_version
@@ -147,9 +160,18 @@ Allowed logical `unit_type` values:
 
 ```text
 scalar
+bullet
 list_item
 chunk
 ```
+
+### Provenance naming
+
+Keep one logical metadata vocabulary: `field_name` identifies the source field, `unit_type` identifies its representation, and `semantic_unit_id` identifies the unit. Description chunks also carry `unit_position`. These fulfil document-type and chunk-ID provenance needs without parallel aliases.
+
+`source_updated_at` follows the owning job or assessment source record; retain `source_version` for explicit version checks. `deleted_at` is the canonical job deletion timestamp, including on assessment-derived units. `indexed_at` records when a unit's indexed state was last synchronized and must not be used as evidence of source freshness.
+
+`index_schema_version` is the document/semantic-unit schema version. `embedding_model` identifies the model and `embedding_version` tracks model/configuration revisions. If a provider exposes a model revision, include it in that configuration's recorded provenance. Verify source timestamp/version mappings against the authoritative schema before implementation.
 
 ---
 
@@ -189,6 +211,16 @@ to:
 
 must not force re-embedding of unchanged items.
 
+### Assessment bullet
+
+Conceptually:
+
+```text
+job_id + assessment_id + field_name + normalized_content_hash
+```
+
+Bullet position and marker style are not identity. Reordering bullets or replacing `-` with `*` must not force re-embedding. A changed bullet removes/deactivates its previous unit and creates a new one. Nonempty preamble or unmarked fallback text uses scalar identity.
+
 ### Job-description chunk
 
 Chunk identity must distinguish chunks belonging to the same job and support change detection.
@@ -201,7 +233,7 @@ Do not expose storage-engine-specific IDs as domain identifiers.
 
 ## 6. Normalisation
 
-Normalisation occurs before hashing and embedding.
+Parsing occurs before content normalisation. Preserve line boundaries while identifying bullets; normalise extracted unit content before hashing and embedding.
 
 At minimum:
 
@@ -211,6 +243,8 @@ At minimum:
 - ignore empty/whitespace-only values
 - parse serialized list fields
 - index list items separately
+- parse bullet-formatted fields at line-start markers and retain continuation lines
+- normalise marker style out of bullet content
 
 Normalisation should be deterministic.
 
@@ -220,7 +254,7 @@ Do not over-normalise semantically meaningful punctuation or wording without evi
 
 ---
 
-## 7. Duplicate list items
+## 7. Duplicate list items and bullets
 
 Within the same:
 
@@ -230,7 +264,7 @@ assessment_id
 field_name
 ```
 
-identical normalised list items should not produce duplicate active semantic units.
+identical normalised list items or bullets should not produce duplicate active semantic units.
 
 Identical text across different jobs remains separate because each unit belongs to a different parent entity.
 
@@ -262,7 +296,10 @@ unit_type = chunk
 unit_position
 content_hash
 source_version
+source_updated_at
 is_deleted
+deleted_at
+indexed_at
 ```
 
 ---
@@ -295,8 +332,12 @@ update non-semantic metadata if required
 ### Changed scalar
 
 ```text
-embed changed scalar only
+embed changed technical_bar or unmarked fallback/preamble only
 ```
+
+### Added, removed, changed or reordered bullet
+
+Apply the same content-based incremental rules as list items below. Embed only new or changed bullets, deactivate removed bullets, and update positions without embedding on reorder.
 
 ### Added list item
 
@@ -364,6 +405,8 @@ Use for controlled migrations when unit structure or indexing semantics change.
 
 Do not overload one version field to represent all three concepts.
 
+The change from one unit per assessment scalar to bullet-level units is an incompatible indexing-schema change. Increment `index_schema_version` during implementation and rebuild or migrate affected fields. Retire old whole-field units when replacing them with bullets; do not leave both representations active. This acceptance-file version is separate from the runtime index schema version.
+
 ---
 
 ## 12. Deletion
@@ -378,10 +421,13 @@ is_deleted = true
 
 on the canonical job, all semantic units for that job must be unavailable to default search.
 
+Propagate both `is_deleted` and `deleted_at` from the canonical job to every unit. Active/restored units have a null timestamp; deleted units retain the source deletion timestamp. Inconsistent source values are an explicit error and exclude the job from normal retrieval. See `docs/data_semantics.md`.
+
 Default vector search applies:
 
 ```text
 is_deleted = false
+deleted_at IS NULL
 ```
 
 Physical vector removal can be deferred.
@@ -409,7 +455,9 @@ assessment_id
 field_name
 unit_type
 is_deleted
+deleted_at
 source_version
+source_updated_at
 ```
 
 Canonical business attributes still belong to SQLite.
@@ -526,19 +574,21 @@ Retrieval quality remains the primary reason for choosing semantic-unit granular
 
 ## 18. Evaluation boundary
 
-`indexing_cases.yaml` evaluates indexing correctness.
+`evals/indexing_cases.yaml` evaluates indexing correctness.
 
 Examples:
 
-- list splitting
-- scalar handling
+- list and bullet splitting
+- technical_bar handling and unmarked-text fallback
 - no-op reindex
 - item addition/removal
 - reordering
 - deletion
 - version migration
 - parent reconstruction
+- stale-vector detection
+- full rebuild equivalence
 
-`golden_questions.yaml` evaluates user-facing retrieval capability.
+`evals/golden_questions.yaml` evaluates user-facing retrieval capability.
 
 Do not change golden questions merely because the internal indexing implementation changes.

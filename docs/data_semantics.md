@@ -102,11 +102,22 @@ Semantics:
 
 Do not overwrite the job description with assessment-generated summaries.
 
-### `is_deleted`
+### `is_deleted` and `deleted_at`
 
-Soft-deletion state where present.
+Both fields are required by the target deletion contract:
 
-Deleted jobs must be excluded from normal retrieval.
+- `is_deleted` indicates the current soft-deletion state.
+- `deleted_at` records when the current deletion occurred, as an unambiguous timestamp.
+- Active or restored jobs have `is_deleted = false` and `deleted_at = null`.
+- Deleted jobs have `is_deleted = true` and a non-null `deleted_at`.
+
+Deleted jobs are excluded from normal retrieval. Indexing propagates both values to all units for the job. Inconsistent values produce an explicit `inconsistent_deletion_state` error and exclude the job from normal retrieval; do not silently repair canonical data.
+
+These are target requirements, not a claim about the current physical source schema. Verify the authoritative Copilot schema before implementation and flag absent or incompatible fields. This documentation change does not migrate the source database.
+
+### Source freshness
+
+Retain source versions and source update timestamps for job and assessment changes. `source_updated_at` on a semantic unit refers to its owning source record, not the time it was indexed. A job-description unit follows the job; an assessment-derived unit follows its assessment. Verify physical timestamp/version columns before implementing the mapping.
 
 ---
 
@@ -138,11 +149,15 @@ Typical content may include:
 
 It is an assessment summary, not source evidence.
 
+Stored as scalar text formatted with bullets. Semantic indexing splits meaningful line-start `-` or `*` bullets; the relational field remains text.
+
 ### `real_mandate`
 
 Interpretation of what the person would actually be expected to accomplish.
 
 This may differ from the advertised title or wording.
+
+Stored as scalar text formatted with bullets and indexed per meaningful bullet.
 
 Typical content may include:
 
@@ -166,6 +181,8 @@ Description of the technical capability expected by the role.
 
 This describes the role requirement, not the candidate's score against it.
 
+It remains one complete semantic unit, even if it contains multiple sentences or bullet-like formatting.
+
 Do not confuse with `tech_bar_fit`, which is a structured assessment of fit against that bar.
 
 ### `decision_reason`
@@ -175,6 +192,8 @@ Explanation supporting the assessment/application decision.
 This is interpretive and may combine fit, seniority, mandate, risks, commercial considerations, sustainability and evidence gaps.
 
 Do not treat it as raw job-description evidence.
+
+Stored as scalar text formatted with bullets and indexed per meaningful bullet.
 
 ---
 
@@ -494,31 +513,11 @@ Retrieval and synthesis should preserve this distinction.
 
 ## 12. Semantic indexing summary
 
-Current indexing policy:
+- `role_snapshot`, `real_mandate`, `decision_reason`: one unit per meaningful bullet. Unmarked text remains one scalar unit.
+- `technical_bar`: one complete scalar unit.
+- `strong_fit_signals`, `red_flags`, `sustainability_risks`, `evidence_gaps`, `evidence_anchors`: one unit per meaningful parsed list item.
+- `job_description`: chunks when required.
 
-### One vector per populated scalar
-
-```text
-role_snapshot
-real_mandate
-technical_bar
-decision_reason
-```
-
-### One vector per meaningful list item
-
-```text
-strong_fit_signals
-red_flags
-sustainability_risks
-evidence_gaps
-evidence_anchors
-```
-
-### Chunked
-
-```text
-job_description
-```
+Bullet-formatted text fields and serialized list fields are different source representations. Parse each deterministically; do not change their relational meaning or storage type merely to index them.
 
 See `docs/indexing.md` for the technical indexing contract.

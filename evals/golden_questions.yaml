@@ -1,4 +1,4 @@
-version: 3
+version: 4
 
 description: >
   Golden evaluation questions for Agentic Job Analytics.
@@ -28,6 +28,31 @@ notes:
   - Generated SQL must remain read-only.
   - Execution order is intentionally not prescribed unless required by the use case.
   - Ambiguous concepts such as "good fit" should eventually be defined explicitly or clarified.
+
+evaluation_objectives:
+  observability: langsmith
+  agent_metrics:
+    - capability_selection_accuracy
+    - tool_selection_accuracy
+    - sql_correctness
+    - semantic_retrieval_relevance
+    - evidence_completeness
+    - groundedness
+    - answer_quality
+    - latency
+    - token_usage
+    - retries
+    - fallback_rate
+  experiments:
+    - strong_hosted_model_everywhere
+    - local_planning_hosted_synthesis
+    - local_model_for_most_tasks
+    - local_model_with_stronger_fallback
+  notes:
+    - Use the same questions across model strategies and record prompt/model versions.
+    - Create LangSmith datasets, evaluators, traces and experiments from the start.
+    - Measure API cost where relevant; local inference does not imply zero operating cost.
+    - Capability composition does not require rigid top-level retrieval routes.
 
 questions:
 

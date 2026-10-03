@@ -1,18 +1,21 @@
-version: 2
+version: 3
 
 description: >
   Behavioural test cases for the SQLite-to-vector indexing pipeline.
   The vector index is a derived searchable projection of canonical
   SQLite data. Semantic indexing operates at semantic-unit level:
-  one unit per scalar semantic field, one unit per list item, and
-  multiple chunks for long-form job descriptions.
+  one unit per technical_bar, one unit per assessment bullet or list
+  item, and multiple chunks for long-form job descriptions. Bullet-formatted
+  text without markers falls back to one scalar unit.
 
 indexing_policy:
 
   scalar_fields:
+    - technical_bar
+
+  bullet_fields:
     - role_snapshot
     - real_mandate
-    - technical_bar
     - decision_reason
 
   list_fields:
@@ -33,6 +36,9 @@ indexing_policy:
     - content_hash
     - source_version
     - is_deleted
+    - deleted_at
+    - source_updated_at
+    - indexed_at
     - embedding_model
     - embedding_version
     - index_schema_version
@@ -45,10 +51,12 @@ indexing_policy:
 
   searchable_defaults:
     is_deleted: false
+    deleted_at: null
 
   unit_types:
     scalar: scalar
     list_item: list_item
+    bullet: bullet
     chunk: chunk
 
   identity:
@@ -61,6 +69,11 @@ indexing_policy:
       identity because list reordering should not trigger unnecessary
       re-embedding.
 
+    bullet: >
+      Stable identity derived from job_id, assessment_id, field_name
+      and normalized bullet content. Marker style and position must not
+      be identity; unchanged bullets survive reordering without embedding.
+
     chunk: >
       Identity must distinguish chunks belonging to the same job and
       field while allowing the chunking implementation to evolve.
@@ -71,6 +84,14 @@ indexing_policy:
     skip_empty_content: true
     parse_list_fields: true
     embed_serialized_list: false
+    parse_bullet_fields: true
+    bullet_markers: ["-", "*"]
+    bullet_markers_at_line_start_only: true
+    bullet_marker_requires_whitespace: true
+    preserve_continuation_lines: true
+    preserve_nonempty_preamble_as_scalar: true
+    unmarked_bullet_field_fallback: scalar
+    deduplicate_normalized_items_within_field: true
 
   versioning:
     source_version: true
@@ -79,6 +100,10 @@ indexing_policy:
 
   deletion:
     propagate_job_is_deleted: true
+    propagate_job_deleted_at: true
+    active_deleted_at: null
+    deleted_requires_timestamp: true
+    inconsistent_state: explicit_error_exclude_from_search
     exclude_deleted_from_default_search: true
 
   incremental_indexing:
@@ -95,14 +120,15 @@ cases:
 
   - id: new_job_scalar_fields
     description: >
-      A newly indexed assessment creates one semantic unit for each
-      populated scalar semantic field.
+      Unmarked text remains one scalar unit per populated assessment
+      text field for compatibility with existing records.
 
     source:
       job_id: job_001
       assessment_id: assessment_001
       source_version: 1
       is_deleted: false
+      deleted_at: null
 
       role_snapshot: >
         Senior applied AI leadership role combining technical delivery
@@ -144,6 +170,7 @@ cases:
         assessment_id: assessment_001
         source_version: 1
         is_deleted: false
+        deleted_at: null
 
 
   - id: new_job_list_field
@@ -155,6 +182,7 @@ cases:
       assessment_id: assessment_002
       source_version: 1
       is_deleted: false
+      deleted_at: null
 
       red_flags:
         - Heavy executive stakeholder exposure.
@@ -175,6 +203,7 @@ cases:
         job_id: job_002
         assessment_id: assessment_002
         is_deleted: false
+        deleted_at: null
 
 
   - id: list_fields_are_not_aggregated
@@ -204,23 +233,21 @@ cases:
 
   - id: scalar_field_remains_single_unit
     description: >
-      A scalar semantic field is indexed as one unit even when it
-      contains several sentences.
-
+      technical_bar remains one scalar unit even with multiple sentences
+      or bullet-like formatting.
     source:
       job_id: job_004
       assessment_id: assessment_004
       source_version: 1
-
-      real_mandate: >
-        The formal role is positioned as strategy leadership. In
-        practice the successful candidate would build the delivery
-        team, define architecture and lead the first implementations.
-
+      technical_bar: |
+        Strong Python and production AI experience.
+        - Cloud architecture and data engineering.
+        * Ability to evaluate deployed systems.
     expected:
-      field_name: real_mandate
+      field_name: technical_bar
       unit_type: scalar
       total_units: 1
+      preserve_complete_field: true
 
 
   - id: multiple_list_fields_remain_distinct
@@ -646,6 +673,7 @@ cases:
         job_id: job_020
         field_name: job_description
         is_deleted: false
+        deleted_at: null
 
       preserve_chunk_order: true
 
@@ -715,6 +743,7 @@ cases:
       job_id: job_023
       source_version: 4
       is_deleted: false
+      deleted_at: null
 
       indexed_units:
         - role_snapshot
@@ -728,10 +757,12 @@ cases:
       job_id: job_023
       source_version: 5
       is_deleted: true
+      deleted_at: "2026-10-01T12:00:00Z"
 
     expected:
       all_job_units:
         is_deleted: true
+        deleted_at: "2026-10-01T12:00:00Z"
 
       default_semantic_search_results: 0
 
@@ -749,17 +780,20 @@ cases:
       job_id: job_024
       source_version: 3
       is_deleted: true
+      deleted_at: "2026-09-30T12:00:00Z"
 
     updated:
       job_id: job_024
       source_version: 4
       is_deleted: false
+      deleted_at: null
 
       semantic_content_changed: false
 
     expected:
       all_current_job_units:
         is_deleted: false
+        deleted_at: null
 
       embedding_calls: 0
 
@@ -909,7 +943,7 @@ cases:
 
   - id: complete_job_semantic_projection
     description: >
-      A representative job produces scalar, list-item and job-description
+      A representative job produces scalar, bullet, list-item and job-description
       chunk units while retaining one common job identity.
 
     source:
@@ -917,20 +951,23 @@ cases:
       assessment_id: assessment_031
       source_version: 1
       is_deleted: false
+      deleted_at: null
 
-      role_snapshot: >
-        Principal-level applied AI role focused on enterprise delivery.
+      role_snapshot: |
+        - Principal-level applied AI role.
+        - Focused on enterprise delivery.
 
-      real_mandate: >
-        Own strategic customer deployments from discovery through
-        production.
+      real_mandate: |
+        - Lead strategic customer discovery.
+        - Own deployments through production.
 
       technical_bar: >
         Strong Python, LLM application architecture, data engineering
         and cloud deployment skills.
 
-      decision_reason: >
-        Strong match with end-to-end technical delivery experience.
+      decision_reason: |
+        - Strong technical delivery match.
+        - End-to-end ownership aligns with experience.
 
       strong_fit_signals:
         - Strong production data-engineering background.
@@ -958,7 +995,8 @@ cases:
       job_description_fixture: long_job_description
 
     expected:
-      scalar_units: 4
+      scalar_units: 1
+      bullet_units: 6
 
       list_item_units:
         strong_fit_signals: 3
@@ -973,6 +1011,7 @@ cases:
       all_units_share:
         job_id: job_031
         is_deleted: false
+        deleted_at: null
 
       semantic_retrieval_can_filter_by:
         - field_name
@@ -980,3 +1019,197 @@ cases:
         - is_deleted
 
       job_level_reconstruction_possible: true
+
+
+  # Bullet parsing and identity
+  - id: bullet_assessment_fields
+    description: Each bullet in the three bullet-formatted text fields is a unit.
+    source:
+      job_id: job_032
+      assessment_id: assessment_032
+      role_snapshot: |
+        - Hands-on applied AI leadership.
+        * Limited line management.
+      real_mandate: |
+        * Lead discovery through production.
+        - Build the delivery capability.
+      decision_reason: |
+        - Strong technical alignment.
+        * Seniority is appropriate.
+    expected:
+      unit_type: bullet
+      semantic_units:
+        role_snapshot: 2
+        real_mandate: 2
+        decision_reason: 2
+      total_units: 6
+      bullet_markers_removed: true
+      preserve_field_name: true
+
+  - id: bullet_continuations_and_hyphens
+    description: Only line-start markers followed by whitespace start bullets.
+    source:
+      job_id: job_033
+      assessment_id: assessment_033
+      real_mandate: |
+        - Own end-to-end delivery
+          from discovery to production.
+        * Build client-facing systems using A * B.
+    expected:
+      unit_type: bullet
+      total_units: 2
+      contents:
+        - Own end-to-end delivery from discovery to production.
+        - Build client-facing systems using A * B.
+
+  - id: unmarked_assessment_text_fallback
+    description: Unmarked text is preserved as one scalar unit.
+    source:
+      job_id: job_034
+      assessment_id: assessment_034
+      decision_reason: Strong fit. The role involves hands-on work and A * B.
+    expected:
+      unit_type: scalar
+      total_units: 1
+      preserve_complete_field: true
+
+  - id: bullet_preamble_is_preserved
+    description: Preserve nonempty text preceding the first bullet as a scalar unit.
+    source:
+      job_id: job_035
+      assessment_id: assessment_035
+      role_snapshot: |
+        Applied AI role.
+        - Hands-on delivery.
+    expected:
+      scalar_units: 1
+      bullet_units: 1
+      total_units: 2
+
+  - id: empty_and_duplicate_bullets
+    description: Ignore empty bullets and deduplicate normalized content within a field.
+    source:
+      job_id: job_036
+      assessment_id: assessment_036
+      decision_reason: |
+        - Strong technical fit.
+        * Strong   technical fit.
+        - 
+        * 
+    expected:
+      unit_type: bullet
+      total_units: 1
+      duplicate_active_units: 0
+
+  - id: bullet_reordering_and_marker_changes
+    description: Marker style and position changes do not require re-embedding.
+    existing:
+      job_id: job_037
+      assessment_id: assessment_037
+      real_mandate: |
+        - Build a team.
+        - Own production delivery.
+    updated:
+      job_id: job_037
+      assessment_id: assessment_037
+      real_mandate: |
+        * Own production delivery.
+        * Build a team.
+    expected:
+      unchanged_units: 2
+      embedding_calls: 0
+      unit_positions_may_change: true
+
+  - id: bullet_replacement_is_incremental
+    description: Replace only the changed bullet and preserve unrelated bullets.
+    existing:
+      job_id: job_038
+      assessment_id: assessment_038
+      real_mandate: |
+        - Build a team.
+        - Own prototypes.
+    updated:
+      job_id: job_038
+      assessment_id: assessment_038
+      real_mandate: |
+        - Build a team.
+        - Own production delivery.
+    expected:
+      unchanged_units: 1
+      removed_units: 1
+      new_units: 1
+      embedding_calls: 1
+
+  - id: inconsistent_deletion_metadata
+    description: Conflicting deletion fields produce an explicit error and no searchable units.
+    sources:
+      - job_id: job_039
+        is_deleted: false
+        deleted_at: "2026-10-01T12:00:00Z"
+      - job_id: job_040
+        is_deleted: true
+        deleted_at: null
+    expected:
+      failure_category: inconsistent_deletion_state
+      default_semantic_search_results: 0
+      silent_repair: false
+
+  - id: current_source_over_stale_vector
+    description: Stale indexed evidence must not be presented as current source evidence.
+    indexed:
+      job_id: job_041
+      source_version: 1
+      real_mandate: Own prototypes.
+    source:
+      job_id: job_041
+      source_version: 2
+      real_mandate: Own production delivery.
+    expected:
+      stale_detected: true
+      canonical_context_used: true
+      stale_text_presented_as_current: false
+      agent_modifies_index: false
+
+  - id: full_rebuild_equivalence
+    description: Rebuilding from the same source and configuration preserves semantic units.
+    source:
+      job_id: job_042
+      assessment_id: assessment_042
+      is_deleted: false
+      deleted_at: null
+      role_snapshot: |
+        - Hands-on applied AI role.
+        * Limited line management.
+      technical_bar: Strong Python.
+      red_flags: [Heavy travel.]
+    execution:
+      compare_incremental_index_with_full_rebuild: true
+    expected:
+      equivalent_active_semantic_units: true
+      stable_source_identifiers: true
+      duplicate_active_units: 0
+
+
+  - id: migrate_scalar_assessments_to_bullets
+    description: Retire old whole-field units when migrating to bullet-level indexing.
+    existing:
+      index_schema_version: 1
+      job_id: job_043
+      assessment_id: assessment_043
+      active_whole_field_units: 3
+    source:
+      role_snapshot: |
+        - Hands-on AI role.
+        - Limited line management.
+      real_mandate: |
+        - Lead discovery.
+        - Own production.
+      decision_reason: |
+        - Strong technical fit.
+        - Appropriate seniority.
+    updated_configuration:
+      index_schema_version: 2
+    expected:
+      active_bullet_units: 6
+      old_whole_field_units_active: 0
+      migration_required: true
