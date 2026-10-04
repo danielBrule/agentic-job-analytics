@@ -111,6 +111,8 @@ def heading_anchors(body: str) -> set[str]:
 
 
 def check_documents(root: Path, files: list[Path]) -> int:
+    # Use the same resolved spelling for containment checks and error paths.
+    root = root.resolve()
     public = {path.resolve() for path in files}
     bodies = {}
     for path in files:
@@ -118,7 +120,7 @@ def check_documents(root: Path, files: list[Path]) -> int:
             try:
                 bodies[path.resolve()] = markdown_body(path.read_text(encoding="utf-8"))
             except CheckFailure as error:
-                raise CheckFailure(f"{path.relative_to(root)}: {error}") from error
+                raise CheckFailure(f"{path.resolve().relative_to(root)}: {error}") from error
     links = 0
     for path, body in bodies.items():
         for target in re.findall(r"\]\(([^)]+)\)", body):
@@ -126,7 +128,7 @@ def check_documents(root: Path, files: list[Path]) -> int:
                 continue
             filename, _, fragment = target.strip("<>").partition("#")
             destination = (path.parent / unquote(filename)).resolve() if filename else path
-            if not destination.is_relative_to(root.resolve()):
+            if not destination.is_relative_to(root):
                 raise CheckFailure(f"{path.relative_to(root)}: link outside repository: {target}")
             if destination not in public:
                 raise CheckFailure(f"{path.relative_to(root)}: missing or ignored link: {target}")

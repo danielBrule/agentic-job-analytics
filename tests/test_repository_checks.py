@@ -71,6 +71,22 @@ class RepositoryChecksTest(unittest.TestCase):
         with self.assertRaisesRegex(CheckFailure, "outside"):
             check_documents(self.root, [path])
 
+    def test_document_errors_with_equivalent_root_spelling(self) -> None:
+        # An unresolved alias reproduces the short/long path mismatch from Windows CI.
+        (self.root / "alias").mkdir()
+        root = self.root / "alias" / ".."
+        guide = self.write("guide.md", "# Present\n")
+        for content, message in (
+            ("[missing](absent.md)\n", "missing or ignored link"),
+            ("[outside](../outside.md)\n", "link outside repository"),
+            ("[anchor](guide.md#missing)\n", "missing anchor"),
+            ("```python\n", "Unclosed Markdown code fence"),
+        ):
+            with self.subTest(message=message):
+                readme = self.write("README.md", content)
+                with self.assertRaisesRegex(CheckFailure, f"README.md: {message}"):
+                    check_documents(root, [readme, guide])
+
     def test_valid_contracts(self) -> None:
         self.contracts()
         check_contracts(self.root)
