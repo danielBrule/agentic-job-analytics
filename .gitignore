@@ -32,6 +32,8 @@ ENV/
 !.env.example
 
 # Editors / OS
+# Local artifacts created with an unexpanded Windows environment variable
+/%SystemDrive%/
 .vscode/
 .idea/
 .DS_Store

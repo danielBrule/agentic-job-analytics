@@ -22,11 +22,11 @@ These instructions govern how a coding agent should work on the repository. They
 
 Authoritative behavioural and data contracts live in:
 
-- `docs/retrieval_contract.md` — runtime retrieval and answer behaviour
-- `docs/data_semantics.md` — meaning of tables and fields
-- `docs/indexing.md` — SQLite-to-vector indexing design
-- `evals/golden_questions.yaml` — retrieval/answer acceptance cases
-- `evals/indexing_cases.yaml` — indexing acceptance cases
+- [docs/retrieval_contract.md](docs/retrieval_contract.md) — runtime retrieval and answer behaviour
+- [docs/data_semantics.md](docs/data_semantics.md) — meaning of tables and fields
+- [docs/indexing.md](docs/indexing.md) — SQLite-to-vector indexing design
+- [evals/golden_questions.yaml](evals/golden_questions.yaml) — retrieval/answer acceptance cases
+- [evals/indexing_cases.yaml](evals/indexing_cases.yaml) — indexing acceptance cases
 
 Read and follow [SECURITY.md](SECURITY.md) when changing data handling, external-provider calls, tracing, logging, evaluation datasets, persistence or secrets management.
 
@@ -36,6 +36,7 @@ If implementation and documentation disagree, do not silently choose one. Identi
 
 ## 1. Engineering principles
 
+- Do not agree by default. Assess proposals against the contracts, evidence and project objectives. Challenge assumptions when there is a concrete concern, explain the consequences and suggest alternatives. Agree when the reasoning supports agreement.
 - Prefer the simplest implementation that satisfies the contracts, tests and learning objectives.
 - Treat correctness, learning value, testability, service replaceability, a credible path to scale and simplicity as equally important architectural criteria, with no fixed priority order.
 - When a material conflict prevents satisfying these criteria together, give the human a clear comparison of feasible options, supporting evidence, benefits, costs, risks and uncertainties. Explain the recommendation, then let the human choose before implementing the disputed decision. Do not silently impose a priority or scoring weight.
@@ -157,9 +158,9 @@ Follow the [model comparison and human selection workflow](docs/architecture.md#
 
 ## 5. Read-only runtime agent
 
-The runtime analytics agent is read-only.
+The runtime analytics agent and its tools are read-only.
 
-Generated SQL must not:
+SQL generated for the runtime request path must not:
 
 - `INSERT`
 - `UPDATE`
@@ -172,7 +173,9 @@ Generated SQL must not:
 
 Model-generated SQL is untrusted input. Enforce read-only access deterministically through database access restrictions and SQL validation; prompts alone are insufficient.
 
-Indexing jobs are separate implementation processes and may update the derived vector index.
+A separate indexing process may use deterministic SQL to read and identify changes in canonical SQLite data, then update the derived vector index through the approved indexing adapters. Python coordinates semantic-unit transformation, hashing, embedding and index lifecycle handling. If the approved vector backend supports SQL, its adapter may use SQL for derived-index writes.
+
+These updates must follow [docs/indexing.md](docs/indexing.md) and must not modify canonical source data. The runtime agent cannot invoke indexing writes.
 
 ---
 
@@ -194,7 +197,7 @@ When vector content conflicts with a newer SQLite record, SQLite wins.
 
 ## 7. Retrieval implementation
 
-Runtime retrieval must follow `docs/retrieval_contract.md`.
+Runtime retrieval must follow [docs/retrieval_contract.md](docs/retrieval_contract.md).
 
 Compose reusable capabilities: `structured_query`, `semantic_retrieval` and `synthesis`.
 
@@ -296,6 +299,16 @@ Use:
 Avoid duplicating detailed contracts across files.
 
 Prefer links to the authoritative document instead.
+
+### Code comments and docstrings
+
+Keep comments clear, concise and proportionate to the code:
+
+- Give classes a short docstring explaining their purpose or responsibility.
+- Document functions and methods when behaviour is non-obvious, including relevant assumptions, side effects, invariants or surprising return/error behaviour. Simple, self-explanatory helpers do not need a docstring.
+- Use inline comments to explain why a choice is necessary or clarify a subtle step; avoid narrating obvious operations or repeating names and type hints.
+- Expand explanations only where complexity or the learning objectives justify them; keep detailed architecture and contracts in their authoritative documents.
+- Update or remove comments when the code changes so they remain accurate.
 
 ## Related systems
 
