@@ -27,14 +27,15 @@ function Invoke-Tool {
 
 function Resolve-Python {
     if ($Python) {
-        $command = Get-Command $Python -CommandType Application -ErrorAction Stop
+        $command = Get-Command $Python -CommandType Application -ErrorAction Stop | Select-Object -First 1
         return [pscustomobject]@{ Executable = $command.Source; Prefix = @() }
     }
     if (Test-Path -LiteralPath $venvPython -PathType Leaf) {
         return [pscustomobject]@{ Executable = $venvPython; Prefix = @() }
     }
     foreach ($name in @("python", "python3", "py")) {
-        $command = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue
+        # Multiple PATH matches must not become one concatenated executable path.
+        $command = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($command) {
             $prefix = if ($name -eq "py") { @("-3") } else { @() }
             return [pscustomobject]@{ Executable = $command.Source; Prefix = @($prefix) }

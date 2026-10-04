@@ -45,6 +45,7 @@ ENV/
 data/
 *.csv
 *.xlsx
-!implementation-backlog.csv
+implementation-backlog.csv
+agentic_job_analytics_backlog.csv
 *.docx
 *.pdf
