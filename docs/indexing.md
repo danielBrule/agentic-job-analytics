@@ -15,33 +15,29 @@ Acceptance definitions live in [indexing_cases.yaml](../evals/indexing_cases.yam
 ## 1. Architecture
 
 ```text
-SQLite
-  │
-  │ canonical jobs + assessments
-  ▼
-extract changed records
-  │
-  ▼
-normalise
-  │
-  ├── technical_bar ──────► scalar unit
-  ├── assessment bullet ─► bullet unit
-  ├── list item ──────────► semantic unit
-  └── job description ────► semantic chunks
-  │
-  ▼
-compare with index state / manifest
-  │
-  ├── unchanged ──────────► reuse
-  ├── new ────────────────► embed + insert
-  ├── changed ────────────► embed replacement + deactivate previous
-  └── removed/deleted ────► deactivate
-  │
-  ▼
-vector index
+Copilot SQLite
+  -> capture required tables in a candidate SQLite snapshot
+  -> build/normalize units and compare with the published manifest
+  -> reuse unchanged embeddings; embed only new/changed units
+  -> retire obsolete units; remove deleted-job vector records
+  -> validate candidate SQL/vector generation
+  -> publish the matching pair together
 ```
 
 ---
+
+## Snapshot ingestion and publication
+
+Copilot SQLite remains canonical. The runtime serves a read-only analytics snapshot and the vector generation built for it. Consistency within that pair is required; immediate freshness against Copilot is not. Record and expose the source capture time and shared `generation_id` in application results and traces without private payloads.
+
+1. Capture a consistent source copy using SQLite's native backup mechanism, then retain only the required analytics tables: `jobs`, `assessments` and `llm_calls`, plus supporting tables required by preserved foreign keys. Preserve source identifiers and schema semantics. The copy is disposable and rebuildable; do not modify upstream data. A raw main-file copy is not the ingestion contract.
+2. Prepare a new candidate generation from this fixed snapshot. Compare source projections, semantic-unit membership, hashes and configuration with the published manifest. Reuse unchanged embeddings; embed only new or changed content unless embedding/index configuration requires wider work. SQL rows may all be copied at this small volume.
+3. Keep candidate SQL and vector membership isolated from the published pair. Do not alter vector content, positions, filters or membership used by existing requests. Reusing immutable embeddings is allowed; creating a generation does not require new embeddings for unchanged units.
+4. Validate the candidate: snapshot integrity and foreign keys, expected unit membership/content, source IDs and usable assessments, embedding/index versions, and equal SQL/vector `generation_id`. Reject a mismatched pair with `generation_mismatch`.
+5. Publish one manifest/reference selecting both artifacts as one logical switch. New requests pin that pair for their entire execution. A request already using the previous generation finishes against that generation. Snapshot, embedding, upsert, validation or publication failure leaves the previous pair available and reports an explicit failure.
+6. Retire old pairs after requests release them. Cleanup must not remove shared embeddings still referenced by a published or in-flight generation. Retaining superseded content is optional; retention and cleanup timing remain implementation choices. Removing a job from the next generation does not promise immediate erasure from old snapshots, traces or evaluation packs.
+
+No pair is available before the first successful ingestion; report that state rather than mixing candidate or live data. Provider-specific generation storage and the publication mechanism will be selected during implementation. No real-time CDC or concurrent source-write assumption is needed for the initial local project, but use the backup mechanism for a consistent capture.
 
 ## Current source selection
 
@@ -154,8 +150,6 @@ content_hash
 source_version
 source_updated_at
 is_active
-is_deleted
-deleted_at
 indexed_at
 embedding_model
 embedding_version
@@ -188,9 +182,9 @@ chunk
 
 Keep one logical metadata vocabulary: `field_name` identifies the source field, `unit_type` identifies its representation, and `semantic_unit_id` identifies the unit. Description chunks also carry `unit_position`. These fulfil document-type and chunk-ID provenance needs without parallel aliases.
 
-`source_updated_at` maps to `jobs.updated_at` or `assessments.updated_at`, according to the owning record. The source has no native `source_version` counter; compute an opaque deterministic source-revision token. Whole-second timestamps are not unique versions, so semantic content hashes must catch changes even when timestamps match. `deleted_at` is the canonical job deletion timestamp, including on assessment-derived units. `indexed_at` records when a unit's indexed state was last synchronized and must not be used as evidence of source freshness.
+`source_updated_at` maps to `jobs.updated_at` or `assessments.updated_at`, according to the owning record. The source has no native `source_version` counter; compute an opaque deterministic source-revision token. Whole-second timestamps are not unique versions, so semantic content hashes must catch changes even when timestamps match. `indexed_at` records when a unit's indexed state was last synchronized and must not be used as evidence of source freshness.
 
-`index_schema_version` is the document/semantic-unit schema version. `embedding_model` identifies the model and `embedding_version` tracks model/configuration revisions. If a provider exposes a model revision, include it in that configuration's recorded provenance. The verified mappings and remaining deletion gap are documented in `docs/data_semantics.md`.
+`index_schema_version` is the document/semantic-unit schema version. `embedding_model` identifies the model and `embedding_version` tracks model/configuration revisions. If a provider exposes a model revision, include it in that configuration's recorded provenance. The verified mappings and physical-deletion semantics are documented in `docs/data_semantics.md`. Generation identity belongs to the pair manifest/membership and is separate from these per-unit versions.
 
 ---
 
@@ -242,15 +236,9 @@ Bullet position and marker style are not identity. Reordering bullets or replaci
 
 ### Active and obsolete records
 
-`is_active` indicates whether an indexed record belongs to the current semantic projection and embedding/index configuration. It is separate from `is_deleted`, which describes the parent job's source deletion state. An obsolete bullet for an undeleted job has `is_active = false` while the job remains `is_deleted = false`.
+`is_active` identifies current units within the selected generation. Superseded bullets, items and scalar revisions must not be searchable. They may be deactivated and retained or physically removed from the candidate generation; historical reconstruction is not required.
 
-When semantic content changes, prepare the replacement and deactivate the previous vector record. Removed bullets/items, superseded scalar records and old schema/model records are deactivated rather than physically deleted during normal indexing. Keep exactly one active record per current semantic unit and configuration.
-
-The scalar semantic-unit identity remains stable. Storage-level record IDs must distinguish its content/configuration revisions, for example using the logical unit ID, content hash and embedding/index versions. Do not overwrite the only prior record when the required outcome is deactivation; provider-specific record IDs remain an adapter concern.
-
-Publish the replacement and retire its predecessor as one logical handover where supported. Failed embedding/upsert must not activate an incomplete replacement. Runtime freshness checks still prevent old indexed text from being presented as current evidence while synchronization is incomplete.
-
-Inactive vectors may be retained for inspection and possible reuse. This does not guarantee historical reconstruction: the canonical source retains only the current assessment. Historical querying and cleanup/retention policy are separate future decisions. Do not automatically reactivate every inactive vector when a job is restored; activate only units matching the current source and configuration.
+Exactly one current record belongs to each logical unit/configuration in the candidate generation. Scalar identity stays stable; storage IDs can distinguish content/configuration revisions. Generation membership must isolate any shared vector records from changes while older requests use them. Failed replacement embedding/upsert must not publish partial membership. See [snapshot ingestion and publication](#snapshot-ingestion-and-publication).
 
 ### Job-description chunk
 
@@ -329,8 +317,6 @@ content_hash
 source_version
 source_updated_at
 is_active
-is_deleted
-deleted_at
 indexed_at
 ```
 
@@ -444,31 +430,11 @@ An existing index built with one unit per assessment scalar is incompatible with
 
 ## 12. Deletion
 
-Soft deletion must propagate to semantic retrieval.
+Physical deletion from Copilot is detected by comparing a complete successful candidate snapshot with the published generation. Remove all active and obsolete vector records for a missing job from the candidate generation. Classify the missing record as `source_record_missing`; do not invent soft-deletion fields or timestamps. Failed or partial reads must not infer deletion or publish a new pair.
 
-If:
+Default semantic retrieval selects the pinned generation's membership and `is_active = true`. A job missing from that generation's SQLite snapshot cannot appear in its semantic results. Jobs closed or rejected but still present remain available for analytics.
 
-```text
-is_deleted = true
-```
-
-on the canonical job, all semantic units for that job must be unavailable to default search.
-
-Propagate both `is_deleted` and `deleted_at` from the canonical job to every unit. Active/restored units have a null timestamp; deleted units retain the source deletion timestamp. Inconsistent source values are an explicit error and exclude the job from normal retrieval. See `docs/data_semantics.md`.
-
-Default vector search applies:
-
-```text
-is_active = true
-is_deleted = false
-deleted_at IS NULL
-```
-
-Normal indexing deactivates records and retains their vectors; physical removal is a separate future cleanup decision. Correctness must not depend on physical deletion.
-
-If an unchanged deleted job is restored, its current units may be reactivated and their embeddings reused. Superseded units must remain inactive.
-
-The checked Copilot source does not yet implement soft deletion. For confirmed missing jobs, deactivate all units without inventing `deleted_at`; see the integration gap in `docs/data_semantics.md`. Complete source reconciliation must detect physical deletion as well as new/changed records. Failed or partial reads must not deactivate supposedly missing jobs.
+The previous published pair may still contain an upstream-deleted job until successful publication, and in-flight requests can finish on that pair. Cleanup follows the generation lifecycle above. If a job is reintroduced later, derive units from its current snapshot content; reuse embeddings only if their content/configuration match. Soft deletion and restoration flags are outside initial scope.
 
 ---
 
@@ -489,8 +455,6 @@ assessment_id
 field_name
 unit_type
 is_active
-is_deleted
-deleted_at
 source_version
 source_updated_at
 ```

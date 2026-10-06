@@ -59,7 +59,7 @@ These are design directions, not a requirement to implement every adapter. Keep 
 
 Use LangGraph directly rather than wrapping it in a generic workflow framework. Use LangSmith directly enough to learn its traces, datasets and experiments. Infrastructure isolation must not hide the learning technologies.
 
-SQLite is initially authoritative. Migration to another relational service is future work and must preserve domain/retrieval contracts while explicitly validating schema and SQL compatibility.
+Copilot SQLite remains the canonical upstream source. Runtime SQL and semantic retrieval use one published analytics snapshot/index generation; see [snapshot ingestion and publication](indexing.md#snapshot-ingestion-and-publication). Older but internally consistent data is acceptable, and capture time is visible. Migration to another relational service is future work and must preserve domain/retrieval contracts while explicitly validating schema and SQL compatibility.
 
 ## Configuration and model strategies
 
@@ -138,15 +138,17 @@ Indexing is a separate process from read-only agent requests:
 
 ```text
 Canonical relational data
-  -> detect changed jobs and assessments
+  -> capture required tables into a candidate SQLite snapshot
+  -> detect changes against the previously published generation
   -> build and normalize semantic units
   -> chunk long descriptions where appropriate
   -> compare content and configuration versions
   -> embed new/changed units
-  -> activate replacements and deactivate obsolete units
+  -> prepare matching candidate vector membership
+  -> validate and publish the SQL/vector pair together
 ```
 
-Support idempotent replay, source and assessment updates, deletion/restoration, freshness checks, selective re-indexing and full rebuilds. Only the current successful assessment for each job contributes assessment units. Reassessment can change content while retaining the same assessment ID. Normal indexing deactivates obsolete records; inactive vectors remain excluded from search through `is_active = false`. No real-time CDC is required initially.
+Support idempotent replay, source and assessment updates, physical-deletion reconciliation, generation-consistency checks, selective re-indexing and full rebuilds. Only the current successful assessment for each job contributes assessment units. Reassessment can change content while retaining the same assessment ID. Superseded units must be excluded; retaining their vectors is optional. Physically deleted jobs have no vector records in the new generation. The previous pair remains unchanged until successful publication, and each request pins one pair. No real-time CDC is required initially.
 
 See [indexing.md](indexing.md) for unit granularity, identity, provenance and migration rules. See [data_semantics.md](data_semantics.md) for source meaning and deletion state.
 

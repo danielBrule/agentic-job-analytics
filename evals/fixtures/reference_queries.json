@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "golden_questions_version": 5,
+  "golden_questions_version": 6,
   "description": "Reference SQL for local, private Copilot evaluation snapshots. These queries define supporting facts; they do not prescribe generated SQL text or answer wording.",
   "numeric_comparison": {
     "integer": "exact",

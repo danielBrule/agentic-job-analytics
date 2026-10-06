@@ -1,4 +1,4 @@
-version: 4
+version: 5
 
 description: >
   Behavioural test cases for the SQLite-to-vector indexing pipeline.
@@ -36,8 +36,6 @@ indexing_policy:
     - content_hash
     - source_version
     - is_active
-    - is_deleted
-    - deleted_at
     - source_updated_at
     - indexed_at
     - embedding_model
@@ -53,8 +51,6 @@ indexing_policy:
 
   searchable_defaults:
     is_active: true
-    is_deleted: false
-    deleted_at: null
 
   unit_types:
     scalar: scalar
@@ -104,12 +100,17 @@ indexing_policy:
     index_schema_version: true
 
   deletion:
-    propagate_job_is_deleted: true
-    propagate_job_deleted_at: true
-    active_deleted_at: null
-    deleted_requires_timestamp: true
-    inconsistent_state: explicit_error_exclude_from_search
-    exclude_deleted_from_default_search: true
+    source_mode: physical_delete
+    require_complete_successful_snapshot: true
+    remove_all_job_vectors_from_candidate_generation: true
+    fabricated_deletion_timestamp: false
+    soft_delete_support: out_of_initial_scope
+
+  publication:
+    paired_sqlite_and_vector_generation: true
+    pin_pair_for_entire_request: true
+    preserve_previous_pair_on_failure: true
+    reuse_unchanged_embeddings: true
 
   assessment_selection:
     per_job: zero_or_one_current
@@ -120,7 +121,7 @@ indexing_policy:
   obsolescence:
     action: deactivate
     active_metadata: is_active
-    physically_retain_inactive_vectors: true
+    physically_retain_inactive_vectors: optional
     exclude_inactive_from_default_search: true
     historical_query_support: false
 
@@ -129,7 +130,7 @@ indexing_policy:
     assessment_status_when_omitted: ASSESSED
     is_active_when_omitted: true
     source_version_examples: synthetic_revision_tokens_not_upstream_columns
-    deletion_examples: target_contract_not_current_upstream_schema
+    deletion_examples: physical_deletion_between_complete_snapshots
 
   incremental_indexing:
     enabled: true
@@ -152,8 +153,6 @@ cases:
       job_id: job_001
       assessment_id: assessment_001
       source_version: 1
-      is_deleted: false
-      deleted_at: null
 
       role_snapshot: >
         Senior applied AI leadership role combining technical delivery
@@ -194,8 +193,6 @@ cases:
         job_id: job_001
         assessment_id: assessment_001
         source_version: 1
-        is_deleted: false
-        deleted_at: null
 
 
   - id: new_job_list_field
@@ -206,8 +203,6 @@ cases:
       job_id: job_002
       assessment_id: assessment_002
       source_version: 1
-      is_deleted: false
-      deleted_at: null
 
       red_flags:
         - Heavy executive stakeholder exposure.
@@ -227,8 +222,6 @@ cases:
       all_units:
         job_id: job_002
         assessment_id: assessment_002
-        is_deleted: false
-        deleted_at: null
 
 
   - id: list_fields_are_not_aggregated
@@ -697,8 +690,6 @@ cases:
       all_chunks:
         job_id: job_020
         field_name: job_description
-        is_deleted: false
-        deleted_at: null
 
       preserve_chunk_order: true
 
@@ -763,74 +754,33 @@ cases:
   # ---------------------------------------------------------------------------
 
   - id: delete_job
-    description: >
-      A job soft-deleted in SQLite must disappear from normal semantic
-      retrieval even if its vectors remain physically stored.
-
+    description: A physically deleted job has no vector records in the next published generation.
     existing:
       job_id: job_023
-      source_version: 4
-      is_deleted: false
-      deleted_at: null
-
-      indexed_units:
-        - role_snapshot
-        - real_mandate
-        - red_flags_item_1
-        - red_flags_item_2
-        - job_description_chunk_1
-        - job_description_chunk_2
-
-    updated:
-      job_id: job_023
-      source_version: 5
-      is_deleted: true
-      deleted_at: "2026-10-01T12:00:00Z"
-
+      indexed_units: [role_snapshot, real_mandate, red_flags_item_1, job_description_chunk_1]
+    source:
+      complete_snapshot_succeeded: true
+      job_present: false
     expected:
-      all_job_units:
-        is_active: false
-        is_deleted: true
-        deleted_at: "2026-10-01T12:00:00Z"
-
-      default_semantic_search_results: 0
-
+      candidate_generation_job_vector_records: 0
+      default_semantic_search_results_after_publication: 0
       embedding_calls: 0
+      fabricated_deleted_at: false
 
-      physical_vector_deletion_required_immediately: false
-
-
-  - id: restore_deleted_job
-    description: >
-      Restoring an unchanged job can reactivate existing semantic units
-      without recomputing embeddings.
-
+  - id: reintroduced_job
+    description: A job reintroduced after physical deletion is indexed from its current snapshot content.
     existing:
       job_id: job_024
-      source_version: 3
-      is_deleted: true
-      deleted_at: "2026-09-30T12:00:00Z"
-
-    updated:
+      published_job_present: false
+    source:
       job_id: job_024
-      source_version: 4
-      is_deleted: false
-      deleted_at: null
-
-      semantic_content_changed: false
-
+      complete_snapshot_succeeded: true
+      job_present: true
+      technical_bar: Strong Python.
     expected:
-      all_current_job_units:
-        is_active: true
-        is_deleted: false
-        deleted_at: null
-
-      embedding_calls: 0
-
-
-  # ---------------------------------------------------------------------------
-  # Versioning
-  # ---------------------------------------------------------------------------
+      current_units_searchable_after_publication: true
+      superseded_content_searchable: false
+      unchanged_embedding_reuse_allowed_if_available: true
 
   - id: source_version_changes_without_semantic_change
     description: >
@@ -980,8 +930,6 @@ cases:
       job_id: job_031
       assessment_id: assessment_031
       source_version: 1
-      is_deleted: false
-      deleted_at: null
 
       role_snapshot: |
         - Principal-level applied AI role.
@@ -1041,14 +989,11 @@ cases:
       all_units_share:
         is_active: true
         job_id: job_031
-        is_deleted: false
-        deleted_at: null
 
       semantic_retrieval_can_filter_by:
         - field_name
         - job_id
         - is_active
-        - is_deleted
 
       job_level_reconstruction_possible: true
 
@@ -1172,22 +1117,21 @@ cases:
       new_units: 1
       embedding_calls: 1
 
-  - id: inconsistent_deletion_metadata
-    description: Conflicting deletion fields produce an explicit error and no searchable units.
-    sources:
-      - job_id: job_039
-        is_deleted: false
-        deleted_at: "2026-10-01T12:00:00Z"
-      - job_id: job_040
-        is_deleted: true
-        deleted_at: null
+  - id: incomplete_snapshot_does_not_remove_vectors
+    description: A failed or partial source read cannot establish deletion or publish a replacement pair.
+    existing:
+      published_generation: generation_a
+      job_id: job_039
+    source:
+      complete_snapshot_succeeded: false
+      job_present_in_partial_read: false
     expected:
-      failure_category: inconsistent_deletion_state
-      default_semantic_search_results: 0
-      silent_repair: false
+      published_generation: generation_a
+      published_pair_unchanged: true
+      inferred_deletion: false
 
   - id: current_source_over_stale_vector
-    description: Stale indexed evidence must not be presented as current source evidence.
+    description: Indexed evidence must match the SQLite snapshot pinned by the request, not the live upstream database.
     indexed:
       job_id: job_041
       source_version: 1
@@ -1207,8 +1151,6 @@ cases:
     source:
       job_id: job_042
       assessment_id: assessment_042
-      is_deleted: false
-      deleted_at: null
       role_snapshot: |
         - Hands-on applied AI role.
         * Limited line management.
@@ -1351,24 +1293,24 @@ cases:
       timestamp_equality_implies_unchanged: false
 
   - id: physically_missing_source_job
-    description: A confirmed source deletion deactivates units without inventing a deletion timestamp.
+    description: Confirmed physical deletion removes active and obsolete job vectors from the candidate generation.
     existing:
       job_id: job_053
-      is_deleted: false
-      deleted_at: null
-      is_active: true
+      active_vector_records: 2
+      obsolete_vector_records: 3
     source:
       complete_snapshot_succeeded: true
       job_present: false
     expected:
-      all_job_units:
-        is_active: false
-      default_semantic_search_results: 0
+      candidate_generation_job_vector_records: 0
+      default_semantic_search_results_after_publication: 0
       failure_category: source_record_missing
       fabricated_deleted_at: false
-      physical_vector_deletion_required_immediately: false
+      previous_pair_available_until_publication: true
 
   - id: obsolete_scalar_revision_is_deactivated
+    configuration:
+      retain_superseded_vectors: true
     description: Changed scalar content retains an inactive prior record and one active replacement.
     existing:
       job_id: job_054
@@ -1384,3 +1326,67 @@ cases:
       prior_vector_physically_retained: true
       embedding_calls: 1
       old_content_searchable: false
+
+  # Published analytics snapshots
+  - id: publish_matching_sql_vector_pair
+    description: SQL and semantic retrieval switch together only after the candidate generation validates.
+    existing:
+      published_generation: generation_a
+    candidate:
+      sqlite_generation: generation_b
+      vector_generation: generation_b
+      validation_succeeded: true
+    expected:
+      new_request_generation: generation_b
+      sql_vector_generation_equal: true
+      in_flight_generation_a_request_unchanged: true
+
+  - id: failed_ingestion_preserves_previous_pair
+    description: Snapshot, embedding, upsert or validation failure must not change the published pair.
+    existing:
+      published_generation: generation_a
+    candidate:
+      generation: generation_b
+      failure_steps: [snapshot, embedding, vector_upsert, validation]
+    expected:
+      published_generation_for_each_failure: generation_a
+      candidate_searchable: false
+      failure_reported: true
+
+  - id: generation_mismatch_is_rejected
+    description: A mismatched SQL/vector pair cannot be published or used by a runtime request.
+    candidate:
+      sqlite_generation: generation_b
+      vector_generation: generation_a
+    expected:
+      publication_allowed: false
+      runtime_retrieval_allowed: false
+      failure_category: generation_mismatch
+
+  - id: live_source_change_does_not_change_published_pair
+    description: A newer or physically deleted upstream record does not change the already published snapshot.
+    existing:
+      published_generation: generation_a
+      snapshot_job_present: true
+      snapshot_real_mandate: Own prototypes.
+    upstream_changes:
+      - real_mandate: Own production delivery.
+      - job_present: false
+    expected:
+      request_generation: generation_a
+      evidence_real_mandate: Own prototypes.
+      live_source_read_required: false
+      data_capture_time_visible: true
+
+  - id: unchanged_snapshot_reuses_embeddings
+    description: A fresh copy of unchanged SQL data does not require new embeddings.
+    existing:
+      published_generation: generation_a
+    candidate:
+      generation: generation_b
+      semantic_content_changed: false
+      embedding_configuration_changed: false
+      index_schema_changed: false
+    expected:
+      embedding_calls: 0
+      equivalent_active_semantic_units: true

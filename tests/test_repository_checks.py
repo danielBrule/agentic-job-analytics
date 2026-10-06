@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import unittest
 import sys
+import yaml
 
 from tools.check_repository import CheckFailure, check_contracts, check_documents, public_files
 
@@ -22,7 +23,7 @@ class RepositoryChecksTest(unittest.TestCase):
         return path
 
     def contracts(self) -> None:
-        self.write("evals/golden_questions.yaml", "version: 1\nquestions:\n  - id: q01\n")
+        self.write("evals/golden_questions.yaml", "version: 1\nreadiness_baseline:\n  date: '2026-10-06'\n  data_scope: initial_fixture_pack\nquestions:\n  - id: q01\n    readiness:\n      definition: specified\n      data_coverage: available\n      reference: exact-facts\n")
         self.write("evals/indexing_cases.yaml", "version: 1\ncases:\n  - id: first_case\n")
         self.write("evals/fixtures/reference_queries.json",
                    '{"golden_questions_version": 1, "references": [{"id": "q01", "status": "exact_sql_reference", "sql": "SELECT 1"}]}')
@@ -90,6 +91,35 @@ class RepositoryChecksTest(unittest.TestCase):
     def test_valid_contracts(self) -> None:
         self.contracts()
         check_contracts(self.root)
+
+    def test_question_readiness_is_complete_and_uses_known_tags(self) -> None:
+        self.contracts()
+        path = self.root / "evals/golden_questions.yaml"
+        original = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for field in ("definition", "data_coverage", "reference"):
+            for invalid in (None, "passed", ["available"]):
+                with self.subTest(field=field, invalid=invalid):
+                    data = yaml.safe_load(yaml.safe_dump(original))
+                    if invalid is None:
+                        del data["questions"][0]["readiness"][field]
+                    else:
+                        data["questions"][0]["readiness"][field] = invalid
+                    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+                    with self.assertRaisesRegex(CheckFailure, "q01.*readiness"):
+                        check_contracts(self.root)
+
+    def test_readiness_baseline_requires_date_and_scope(self) -> None:
+        self.contracts()
+        path = self.root / "evals/golden_questions.yaml"
+        original = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for baseline in (None, {}, {"date": "yesterday", "data_scope": "fixtures"},
+                         {"date": "2026-02-30", "data_scope": "fixtures"},
+                         {"date": "2026-10-06", "data_scope": ""}):
+            with self.subTest(baseline=baseline):
+                data = dict(original, readiness_baseline=baseline)
+                path.write_text(yaml.safe_dump(data), encoding="utf-8")
+                with self.assertRaisesRegex(CheckFailure, "readiness baseline"):
+                    check_contracts(self.root)
 
     def test_duplicate_yaml_keys_fail(self) -> None:
         self.contracts()
