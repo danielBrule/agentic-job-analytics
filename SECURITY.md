@@ -13,7 +13,7 @@ CV generation and automatic applications are outside the initial scope. The appl
 - Send only the information required for the operation to configured external services and only data the user is authorised to process through those services.
 - Review and redact logs, traces, datasets and exported results before sharing. Redacting credentials does not remove personal or career information.
 
-Inactive vectors still retain potentially sensitive derived content. Deactivation removes them from normal search; it does not erase that content or provide a historical-data guarantee. Retention and physical cleanup must be decided separately.
+Retained inactive vectors and old analytics snapshots contain potentially sensitive content. Excluding a job from a new published pair does not erase it from old pairs, traces, backups or evaluation packs. Generation cleanup must respect in-flight requests and shared embeddings; retention and physical cleanup must be decided explicitly. Follow [snapshot publication](docs/indexing.md#snapshot-ingestion-and-publication).
 
 ## External services and tracing
 

@@ -37,6 +37,8 @@ Failures stop the target and produce a nonzero exit code. Local checks include t
 
 The tests exercise the development validator. Passing them does not mean the runtime agent or indexing acceptance cases have been implemented. See [evaluation fixtures](../evals/fixtures/README.md) for real-data references and review requirements.
 
+Golden questions carry planning-only `readiness` tags for definition, data coverage and references, with a dated `readiness_baseline` identifying the fixture scope. Checks require complete tags with known values and a valid baseline date/scope; these tags do not skip acceptance requirements or establish passing results. Update them when reviewing readiness, and record dataset-specific readiness separately in versioned evaluation artifacts. The [initial audit](repository_audit.md) records foundation evidence and follow-up issues.
+
 ## Branches and CI
 
 Use feature branches → pull request into `dev` → pull request into `main`. `dev` integrates ongoing work; `main` receives reviewed changes.

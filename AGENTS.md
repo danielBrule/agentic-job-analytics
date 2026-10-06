@@ -18,6 +18,8 @@ Treat model size, weight accessibility and deployment location as separate dimen
 
 Architecture, learning objectives, model experiments and initial scope are defined in [docs/architecture.md](docs/architecture.md).
 
+The [initial repository audit](docs/repository_audit.md) records the starting baseline and linked follow-up issues; question readiness lives in `evals/golden_questions.yaml`. Consult it when planning foundation or evaluation work; it is historical evidence, not a replacement for current contracts or GitHub Issues. Later decisions belong in the authoritative documents and their linked issues.
+
 These instructions govern how a coding agent should work on the repository. They are not the runtime prompt for the job-search agent.
 
 Authoritative behavioural and data contracts live in:
@@ -191,7 +193,7 @@ The vector index:
 - must never become the only copy of business information
 - must be rebuildable from SQLite
 
-When vector content conflicts with a newer SQLite record, SQLite wins.
+Runtime SQL and vectors use the same published analytics generation. The pinned SQLite snapshot wins over conflicting vector content; later upstream changes take effect only after a matching pair is published. Follow [snapshot publication](docs/indexing.md#snapshot-ingestion-and-publication).
 
 ---
 
@@ -219,7 +221,7 @@ The indexing contract owns unit granularity, parsing, identity, versioning and l
 
 Use only the current successful assessment for assessment units, while keeping descriptions searchable without an assessment. Deactivate obsolete records and exclude them from normal search.
 
-Preserve and propagate both `is_deleted` and `deleted_at` when supplied by the agreed source integration. Their absence in the checked source must remain explicit; follow [data semantics](docs/data_semantics.md#is_deleted-and-deleted_at) rather than querying absent columns.
+Initial deletion support follows physical deletion in Copilot. Remove missing jobs' vectors from a complete candidate generation, publish SQL and vectors together, and preserve the previous pair on failure. Soft-deletion fields are not required; follow [data semantics](docs/data_semantics.md#is_deleted-and-deleted_at).
 
 ---
 
@@ -236,7 +238,7 @@ Important distinctions include:
 - `technical_bar` vs `tech_bar_fit`
 - source evidence vs assessment conclusions
 
-Use the verified Copilot mapping in `docs/data_semantics.md`: human `jobs.user_decision` and model `assessments.decision` are distinct; evidence anchors are JSON objects. The source has no target soft-deletion fields or native source-version counter. Keep those gaps explicit and do not query absent columns or silently migrate the source.
+Use the verified Copilot mapping in `docs/data_semantics.md`: human `jobs.user_decision` and model `assessments.decision` are distinct; evidence anchors are JSON objects. The source has no soft-deletion fields or native source-version counter. Keep those absences explicit and do not query absent columns or silently migrate the source.
 
 If the physical schema contains conflicting names or undocumented fields, inspect the schema and flag the discrepancy rather than guessing.
 

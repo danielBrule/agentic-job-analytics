@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+from datetime import date
 import json
 from pathlib import Path
 import re
@@ -161,6 +162,28 @@ def check_contracts(root: Path) -> None:
         if type(data.get("version")) is not int or data["version"] < 1:
             raise CheckFailure("Acceptance version must be a positive integer")
     question_ids = case_ids(golden, "questions")
+    baseline = golden.get("readiness_baseline")
+    if not isinstance(baseline, dict):
+        raise CheckFailure("Missing readiness baseline")
+    try:
+        date.fromisoformat(baseline["date"])
+    except (KeyError, TypeError, ValueError):
+        raise CheckFailure("Invalid readiness baseline date") from None
+    if not isinstance(baseline.get("data_scope"), str) or not baseline["data_scope"].strip():
+        raise CheckFailure("Missing readiness baseline data scope")
+    readiness_tags = {
+        "definition": {"specified", "decision-needed"},
+        "data_coverage": {"available", "synthetic-needed", "profile-needed", "not-required"},
+        "reference": {"exact-facts", "supporting-only", "review-needed", "behavior-specified"},
+    }
+    for question in golden["questions"]:
+        readiness = question.get("readiness")
+        if not isinstance(readiness, dict):
+            raise CheckFailure(f"{question['id']}: missing readiness tags")
+        for field, allowed in readiness_tags.items():
+            value = readiness.get(field)
+            if not isinstance(value, str) or value not in allowed:
+                raise CheckFailure(f"{question['id']}: invalid readiness {field}")
     case_ids(indexing, "cases")
     if references.get("golden_questions_version") != golden["version"]:
         raise CheckFailure("Reference golden-question version does not match")

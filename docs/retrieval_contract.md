@@ -6,7 +6,7 @@ This document defines how the runtime job-analytics agent decides what informati
 
 It describes behaviour, not implementation technology.
 
-SQLite is the authoritative relational store. The vector database is a derived semantic index.
+Copilot SQLite is canonical. Runtime SQL and semantic retrieval use one published analytics SQLite snapshot/vector generation. SQLite in that pair is authoritative for its facts; the vector index is derived. Older but consistent data is acceptable. Each request pins the pair, and the capture time is visible. See [snapshot ingestion and publication](indexing.md#snapshot-ingestion-and-publication).
 
 ---
 
@@ -404,27 +404,13 @@ does not by itself justify:
 
 ## 14. Deleted and stale data
 
-Normal retrieval excludes deleted jobs.
+All SQL reads, vector membership, filters and parent reconstruction for a request use the same published `generation_id`. Reject a mismatched pair with `generation_mismatch`; do not silently mix a live source, candidate snapshot or another vector generation. A publication during execution does not change the pair pinned by that request.
 
-The vector index must apply:
+Default vector retrieval selects current membership in the pinned generation and `is_active = true`. Reject hits whose parent job is absent from that SQLite snapshot. Assessment-derived hits require the referenced current assessment in the snapshot to remain usable (`ASSESSED`); description hits do not require an assessment. [Physical deletion](data_semantics.md#is_deleted-and-deleted_at) is reflected at successful publication, not by checking live Copilot during each request.
 
-```text
-is_active = true
-is_deleted = false
-deleted_at IS NULL
-```
+Validate evidence against the pinned SQLite content, source projections, hashes and expected unit membership. Opaque source revision tokens are compared for equality, not ordered; whole-second timestamps alone cannot establish content equality. A vector that disagrees with the pinned snapshot cannot establish a semantic match. Report the consistency failure rather than publishing partial results as valid evidence; runtime tools cannot repair the index.
 
-by default.
-
-Inactive/obsolete index records are excluded even when the job itself is not deleted. The checked source lacks the target soft-deletion fields; follow [source deletion semantics](data_semantics.md#is_deleted-and-deleted_at) for compatibility and confirmed missing-record handling.
-
-Reject hits whose current parent job no longer exists. Assessment-derived hits also require the referenced current assessment to remain usable (`ASSESSED`). Job-description hits do not require an assessment.
-
-Both deletion fields must be consistent with the canonical record when supplied by the agreed source integration. Conflicting state is an explicit error and excludes the job from normal retrieval.
-
-The source has no native version column. Compare the index's derived revision token with the current source projection; opaque tokens are compared for equality, not ordered as version numbers. A changed token or timestamp prompts content verification. Content hashes and unit membership must also detect changes when timestamps match.
-
-Use current SQLite content when indexed text has changed or been removed. Do not claim a current semantic match supported only by stale text. An unchanged unit remains valid despite unrelated record changes; index synchronization and retained-assessment staleness are separate concerns.
+Changes in live Copilot after capture do not invalidate the published pair. Report its capture time; do not claim it reflects current live data. A retained assessment may nevertheless be stale relative to job inputs within the snapshot; expose that distinct limitation when relevant. Before the first publication, report data unavailable. Failed ingestion leaves the previous consistent pair available.
 
 ---
 

@@ -6,6 +6,8 @@ This document defines the business meaning of the data used by the job-analytics
 
 It is a semantic contract, not database DDL.
 
+Copilot SQLite is canonical. Runtime analytics reads a published SQLite snapshot paired with its vector generation. Unless discussing upstream ingestion explicitly, "current" means the state in that pinned snapshot. Its data may lag Copilot; that age is acceptable and must be visible. See [snapshot ingestion and publication](indexing.md#snapshot-ingestion-and-publication).
+
 Before changing queries or retrieval logic, inspect the physical SQLite schema and reconcile any differences with this document rather than assuming column names or types.
 
 ---
@@ -29,7 +31,7 @@ The authoritative shared schema and field definitions are [Copilot's data model]
 
 Job and assessment row timestamps use UTC without a timezone suffix and with whole-second precision. Interpret them as UTC, not workstation-local time. Timestamps are change-detection hints, not unique version counters; content hashes must detect semantic changes even when timestamps match.
 
-The checked source has no native `source_version`, `is_deleted` or `deleted_at` columns. `source_version` in the derived index is an opaque revision token computed from a deterministic source projection, not an assumed integer source column. Keep the two deletion fields as target requirements and resolve the source integration before relying on them.
+The checked source has no native `source_version`, `is_deleted` or `deleted_at` columns. `source_version` in the derived index is an opaque revision token computed from a deterministic source projection, not an assumed integer source column. Soft deletion is outside initial scope; physical deletion is reconciled between complete analytics snapshots without inventing those fields.
 
 Evidence: [job model](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/repositories/models/job.py), [assessment model](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/repositories/models/assessment.py), [assessment persistence](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/services/assessment_persistence.py), [assessment domain](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/domain/assessment.py), [job domain](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/domain/job.py), [call recording](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/services/assessment_execution.py).
 
@@ -129,18 +131,11 @@ Do not overwrite the job description with assessment-generated summaries.
 
 ### `is_deleted` and `deleted_at`
 
-Both fields are required by the target deletion contract:
+The checked Copilot source has neither field and physically deletes jobs. Initial analytics ingestion follows that source behaviour; it does not add soft-deletion columns or infer deletion from application closure or rejection.
 
-- `is_deleted` indicates the current soft-deletion state.
-- `deleted_at` records when the current deletion occurred, as an unambiguous timestamp.
-- Active or restored jobs have `is_deleted = false` and `deleted_at = null`.
-- Deleted jobs have `is_deleted = true` and a non-null `deleted_at`.
+A job confirmed missing from a complete successful candidate snapshot is classified as `source_record_missing`. Remove all its derived vector records from the candidate generation. No deletion timestamp is invented. A failed or partial source read is not evidence of deletion and must not publish a replacement pair.
 
-Deleted jobs are excluded from normal retrieval. Indexing propagates both values to all units for the job. Inconsistent values produce an explicit `inconsistent_deletion_state` error and exclude the job from normal retrieval; do not silently repair canonical data.
-
-The checked Copilot model has neither field; its job service performs physical deletion. This is an explicit source-integration gap. Keep both fields as target requirements, but do not generate SQL against absent columns, infer deletion from application closure, or modify the source from this agent. Resolve the upstream schema/adapter strategy before implementing soft-deletion support.
-
-For a job confirmed missing from a complete source snapshot, deactivate its derived units and classify it as `source_record_missing`. Do not invent a canonical deletion timestamp. A failed or partial source read is not evidence of deletion.
+The previous published snapshot can still contain that job until a new pair is published. Within a request, record existence and content are determined by the pinned analytics snapshot, not live Copilot data. [Snapshot ingestion and publication](indexing.md#snapshot-ingestion-and-publication) owns pair lifecycle and cleanup. Soft-deletion/restoration support requires a future explicit contract decision if needed.
 
 ### Source freshness
 
@@ -540,10 +535,12 @@ Retrieval and synthesis should preserve this distinction.
 
 | Topic | Definition still needed | Affected capability |
 |---|---|---|
-| Soft deletion | An agreed upstream schema or adapter strategy supplying both target deletion fields; the checked source physically deletes jobs | Deletion/restoration integration |
+| Snapshot lifecycle implementation | Physical deletion and paired snapshots are agreed; select generation storage/publication, capture cadence and cleanup implementation | Snapshot publication and deletion reconciliation |
 | Application closure | Explicit mapping from free-text process state to closed/open; missing `closure_reason` alone is insufficient | q06 |
 | Interview history | A supported definition/source for having had an interview; current free-text status does not guarantee historical stage information | q18 |
 | Candidate technical profile | Canonical source and version of the profile used for similarity, beyond individual assessment anchors | q19 |
 | Tokens per assessment | Whether the unit is a task, attempt or invocation, model attribution, retry inclusion and treatment of unreported usage | q21 |
 
 Resolve these definitions before implementing or fully grading the affected capability. Do not silently infer them or change the golden questions to fit available data. The [fixture guide](../evals/fixtures/README.md#remaining-coverage-and-review) records snapshot coverage and outstanding review; [indexing.md](indexing.md) owns semantic-unit representation.
+
+The repository owner, Daniel Brule, owns the remaining definitions and lifecycle implementation choices through [issue #12 — remaining integration and evaluation definitions](https://github.com/danielBrule/agentic-job-analytics/issues/12). The [initial audit follow-ups](repository_audit.md#definition-follow-ups) record the individual questions and implementation dependencies. The snapshot/physical-deletion direction was approved during #10; the other four definitions remain unresolved.
