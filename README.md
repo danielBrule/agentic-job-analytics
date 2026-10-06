@@ -13,11 +13,11 @@ LangGraph provides orchestration. LangSmith provides tracing, datasets and evalu
 
 ## Data and retrieval
 
-SQLite is initially the canonical source of truth. SQL handles exact facts, filters, joins, rankings and aggregations. A derived, rebuildable vector index supports conceptual retrieval.
+Copilot SQLite is the canonical source of truth. Analytics uses a published SQLite snapshot paired with its derived vector generation; its capture time is visible. SQL handles exact facts, filters, joins, rankings and aggregations. A derived, rebuildable vector index supports conceptual retrieval.
 
-The agent composes structured query, semantic retrieval and synthesis capabilities independently, sequentially or in parallel. Semantic units are consolidated by job ID and enriched with current SQLite context before answering. Assessment-dependent analytics uses zero or one current successful assessment per job.
+The agent composes structured query, semantic retrieval and synthesis capabilities independently, sequentially or in parallel. Semantic units are consolidated by job ID and enriched with SQLite context from the same published snapshot before answering. Assessment-dependent analytics uses zero or one current successful assessment per job.
 
-Indexing is incremental, idempotent, version-aware and deletion-aware. Obsolete vectors are deactivated and excluded from normal search. Bullet-formatted assessment text, parsed list items and job-description chunks retain source provenance.
+Indexing is incremental, idempotent, version-aware and deletion-aware. Obsolete units are excluded from normal search; physically deleted jobs are removed from the next published generation. Bullet-formatted assessment text, parsed list items and job-description chunks retain source provenance.
 
 ## Contracts
 

@@ -2,6 +2,8 @@
 
 [golden_questions.yaml](../golden_questions.yaml) defines the expected behaviour. Fixtures bind those questions to fixed source data, reference results and conversation context. They do not change the questions or prove that an agent implementation passes them.
 
+Per-question `readiness` tags in [golden_questions.yaml](../golden_questions.yaml) distinguish definition, data coverage and reference readiness. The top-level baseline date and data scope identify what those tags describe. They are planning metadata, not expected behavior or passing results; freeze dataset-specific readiness with each implemented evaluation version. The [audit](../../docs/repository_audit.md#question-readiness) links the delivery follow-ups.
+
 ## Real-data fixture packs
 
 A private fixture pack has been prepared from the local Copilot database at `C:/git/job-application-copilot/data/database/job_application_copilot.db`. Packs live under `data/evals/copilot-<source-hash-prefix>/`, outside the committed evaluation definitions. The repository's `data/` ignore rule excludes the real data and results. Follow [SECURITY.md](../../SECURITY.md) when using or sharing them.
@@ -42,6 +44,8 @@ Real data is useful but does not contain every required case. The prepared pack 
 Resolve the affected [integration and evaluation definitions](../../docs/data_semantics.md#12-unresolved-integration-and-evaluation-definitions) before treating these cases as fully labelled. Do not change existing golden questions to accommodate gaps in the snapshot.
 
 Semantic relevance and thematic grouping require reviewed judgments. An empty `judgments` array means “unreviewed”, not “no relevant jobs”. Record job IDs, evidence references, rationale and reviewer; preserve partial relevance, negative examples and insufficient evidence. Freeze approved labels before comparing models. Do not let the evaluated model define its own ground truth.
+
+The initial private pack records golden-question version 5 and indexing-case version 4. The contracts now use versions 6 and 5 for paired snapshot publication, physical deletion and readiness metadata. Do not relabel the historical pack as revalidated: verify compatibility and refresh its manifest/references during fixture implementation before using it for the new contract.
 
 The supplied semantic review material is a starting point, not an executable evaluator or approved answer key. During implementation, add the evaluator and LangSmith dataset/experiment runner, then validate model profiles against these fixed fixtures. No model experiment or external upload has been performed while preparing this pack.
 

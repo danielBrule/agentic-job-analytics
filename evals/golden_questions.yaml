@@ -1,15 +1,24 @@
-version: 5
+version: 6
 
 description: >
   Golden evaluation questions for Agentic Job Analytics.
   The evaluation contract is capability-based rather than route-based.
   Structured and semantic retrieval may execute sequentially or in parallel.
 
+readiness_baseline:
+  date: "2026-10-06"
+  data_scope: initial_prepared_copilot_fixture_pack
+  runtime_and_evaluators: missing
+  purpose: Planning metadata only; pending cases are not passing tests.
+
 architecture_contract:
   authoritative_store: sqlite
   semantic_index: vector_db
   semantic_index_is_derived: true
   agent_source_access: read_only
+  runtime_data_scope: published_sqlite_snapshot
+  sql_vector_pair: same_generation
+  live_source_freshness_required: false
 
 source_data_contract:
   authoritative_schema: docs/data_semantics.md
@@ -26,7 +35,7 @@ source_data_contract:
     - Job-only questions retain jobs without successful assessments.
     - Assessment-dependent questions use only the current successful assessment per job.
     - LLM call rows are historical invocations; do not replace their versions with the current assessment version.
-    - Soft-deletion fields remain a target integration requirement absent from the checked Copilot schema.
+    - Physical deletion is reconciled into the next published SQL/vector pair; soft deletion is outside initial scope.
 
 capabilities:
   - structured_query
@@ -78,6 +87,11 @@ questions:
   # ---------------------------------------------------------------------------
 
   - id: q01
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: exact-facts
+      note: Month/country aggregation
     category: structured_analytics
     question: "Combien de candidatures ai-je ajoutées par mois et par pays ?"
     expected_capabilities: [structured_query]
@@ -88,6 +102,11 @@ questions:
     expected_result_characteristics: [group_by_month, group_by_location]
 
   - id: q02
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: exact-facts
+      note: Current successful assessment fit
     category: structured_analytics
     question: "Quel est le fit_score moyen par famille de rôle ?"
     expected_capabilities: [structured_query]
@@ -98,6 +117,11 @@ questions:
     expected_result_characteristics: [group_by_primary_role_family, average_fit_score]
 
   - id: q03
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: exact-facts
+      note: Priority ranking, including ties
     category: structured_analytics
     question: "Quelles familles de rôles ont le priority_score moyen le plus élevé ?"
     expected_capabilities: [structured_query]
@@ -108,6 +132,11 @@ questions:
     expected_result_characteristics: [group_by_primary_role_family, average_priority_score, descending_ranking]
 
   - id: q04
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: exact-facts
+      note: Inclusive score thresholds
     category: structured_analytics
     question: "Quels rôles ont un tech_bar_fit supérieur ou égal à 8 mais un seniority_fit inférieur ou égal à 5 ?"
     expected_capabilities: [structured_query]
@@ -120,6 +149,11 @@ questions:
       - seniority_fit <= 5
 
   - id: q05
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: exact-facts
+      note: Human decision, distinct from recommendation
     category: structured_analytics
     question: "Quels postes ai-je décidé de ne pas poursuivre malgré un fit_score supérieur ou égal à 8 ?"
     expected_capabilities: [structured_query]
@@ -132,6 +166,11 @@ questions:
       - fit_score >= 8
 
   - id: q06
+    readiness:
+      definition: decision-needed
+      data_coverage: synthetic-needed
+      reference: review-needed
+      note: Closure mapping and overdue/open/closed examples
     category: structured_analytics
     question: "Quels jobs ont une next_action_date passée et ne sont pas clôturés ?"
     expected_capabilities: [structured_query]
@@ -148,6 +187,11 @@ questions:
   # ---------------------------------------------------------------------------
 
   - id: q07
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: supporting-only
+      note: Exact strings available; thematic labels unreviewed
     category: qualitative_analysis
     question: "Quels red flags reviennent le plus souvent dans mes assessments ?"
     expected_capabilities: [structured_query, synthesis]
@@ -157,6 +201,11 @@ questions:
     expected_behavior: qualitative_aggregate
 
   - id: q08
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: supporting-only
+      note: Exact risks available; thematic labels unreviewed
     category: qualitative_analysis
     question: "Quels risques de soutenabilité reviennent le plus souvent dans les postes avec un fit_score supérieur ou égal à 8 ?"
     expected_capabilities: [structured_query, synthesis]
@@ -168,6 +217,11 @@ questions:
       - fit_score >= 8
 
   - id: q09
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: review-needed
+      note: Semantic scope and thematic evidence-gap labels
     category: qualitative_analysis
     question: "Quels evidence gaps reviennent le plus souvent sur les rôles proches de Applied AI ou Forward Deployed Engineering ?"
     expected_capabilities: [semantic_retrieval, structured_query, synthesis]
@@ -180,6 +234,11 @@ questions:
     expected_behavior: semantic_scope_then_qualitative_aggregate
 
   - id: q10
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: supporting-only
+      note: Raw mandate dimensions; qualitative conclusions unreviewed
     category: qualitative_analysis
     question: "Sur quelles dimensions du mandat suis-je généralement fort ou faible ?"
     expected_capabilities: [structured_query, synthesis]
@@ -193,6 +252,11 @@ questions:
   # ---------------------------------------------------------------------------
 
   - id: q11
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: review-needed
+      note: FDE relevance judgments
     category: semantic_retrieval
     question: "Trouve les rôles les plus proches d’un Forward Deployed AI Engineer."
     expected_capabilities: [semantic_retrieval, structured_query, synthesis]
@@ -205,6 +269,11 @@ questions:
     expected_behavior: semantic_rank
 
   - id: q12
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: review-needed
+      note: Discovery-to-production relevance
     category: semantic_retrieval
     question: "Quels rôles demandaient de construire une solution de discovery jusqu’à production ?"
     expected_capabilities: [semantic_retrieval, structured_query, synthesis]
@@ -217,6 +286,11 @@ questions:
     expected_behavior: semantic_filter
 
   - id: q13
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: review-needed
+      note: Hands-on and limited-management evidence
     category: semantic_retrieval
     question: "Quels postes étaient très hands-on mais avec peu de management hiérarchique ?"
     expected_capabilities: [semantic_retrieval, structured_query, synthesis]
@@ -229,6 +303,11 @@ questions:
     expected_behavior: semantic_filter
 
   - id: q14
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: review-needed
+      note: GenAI/agentic delivery versus research
     category: semantic_retrieval
     question: "Quels rôles avaient une forte composante GenAI ou agentic sans être des rôles de recherche ?"
     expected_capabilities: [semantic_retrieval, structured_query, synthesis]
@@ -241,6 +320,11 @@ questions:
     expected_behavior: semantic_filter
 
   - id: q15
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: review-needed
+      note: Transformation versus operations
     category: semantic_retrieval
     question: "Quels rôles ressemblaient le plus à un Head of Data & AI orienté transformation plutôt qu’exploitation ?"
     expected_capabilities: [semantic_retrieval, structured_query, synthesis]
@@ -257,6 +341,11 @@ questions:
   # ---------------------------------------------------------------------------
 
   - id: q16
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: review-needed
+      note: Semantic set before structured ranking
     category: multi_capability
     question: "Parmi les rôles similaires à FDE, lesquels avaient les meilleurs fit_score et seniority_fit ?"
     expected_capabilities: [semantic_retrieval, structured_query, synthesis]
@@ -269,6 +358,11 @@ questions:
     expected_behavior: semantic_scope_plus_structured_rank
 
   - id: q17
+    readiness:
+      definition: specified
+      data_coverage: synthetic-needed
+      reference: review-needed
+      note: Current fixture has no GO seeds; empty-seed coverage only
     category: multi_capability
     question: "Quels rôles similaires à ceux classés GO présentent moins de risques de soutenabilité ?"
     expected_capabilities: [structured_query, semantic_retrieval, synthesis]
@@ -280,6 +374,11 @@ questions:
     expected_behavior: structured_seed_plus_semantic_comparison
 
   - id: q18
+    readiness:
+      definition: decision-needed
+      data_coverage: synthetic-needed
+      reference: review-needed
+      note: Interview-history source and positive examples
     category: multi_capability
     question: "Quels rôles ressemblent aux postes pour lesquels j’ai eu des entretiens, mais avec une meilleure adéquation de séniorité ?"
     expected_capabilities: [structured_query, semantic_retrieval, synthesis]
@@ -293,6 +392,11 @@ questions:
       - Interview stage should eventually be normalized instead of inferred from free-text status.
 
   - id: q19
+    readiness:
+      definition: decision-needed
+      data_coverage: profile-needed
+      reference: review-needed
+      note: Canonical technical profile/version; relevance labels
     category: multi_capability
     question: "Quels rôles proches de mon profil technique ont été classés NO_GO, et pour quelles raisons non techniques ?"
     expected_capabilities: [semantic_retrieval, structured_query, synthesis]
@@ -305,6 +409,11 @@ questions:
     expected_behavior: semantic_scope_plus_structured_explanation
 
   - id: q20
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: review-needed
+      note: Seed similarity and France constraint
     category: multi_capability
     question: "Quels rôles similaires aux opportunités avec fit_score supérieur ou égal à 8 et priority_score supérieur ou égal à 8 sont basés en France ?"
     expected_capabilities: [structured_query, semantic_retrieval, synthesis]
@@ -323,6 +432,11 @@ questions:
   # ---------------------------------------------------------------------------
 
   - id: q21
+    readiness:
+      definition: decision-needed
+      data_coverage: available
+      reference: supporting-only
+      note: Accounting unit and model attribution unresolved
     category: llmops
     question: "Quel est le nombre moyen de tokens consommés par assessment et par modèle ?"
     expected_capabilities: [structured_query]
@@ -334,6 +448,11 @@ questions:
       - operation == ASSESSMENT
 
   - id: q22
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: exact-facts
+      note: Token/time metrics and missing-usage coverage
     category: llmops
     question: "Quels pipeline steps consomment le plus de tokens et de temps ?"
     expected_capabilities: [structured_query]
@@ -343,6 +462,11 @@ questions:
     expected_behavior: aggregate_rank
 
   - id: q23
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: exact-facts
+      note: Metric facts only; trade-off synthesis still needs grading
     category: llmops
     question: "Quels modèles présentent les compromis les plus intéressants entre taux de succès, latence et consommation de tokens ?"
     expected_capabilities: [structured_query, synthesis]
@@ -355,6 +479,11 @@ questions:
       - Present trade-offs rather than forcing a single winner.
 
   - id: q24
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: exact-facts
+      note: Counts/categories ready; explanation still needs grading
     category: llmops
     question: "Où observe-t-on le plus de retries ou de failures, et quelles sont les principales catégories d’erreur ?"
     expected_capabilities: [structured_query, synthesis]
@@ -364,6 +493,11 @@ questions:
     expected_behavior: aggregate_failure_analysis
 
   - id: q25
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: exact-facts
+      note: Historical call prompt versions; synthesis still needs grading
     category: llmops
     question: "Pour les appels ASSESSMENT, comment le taux d’échec et la latence ont-ils évolué entre les deux dernières versions de prompt enregistrées ?"
     expected_capabilities: [structured_query, synthesis]
@@ -379,6 +513,11 @@ questions:
       - Identify the two latest recorded prompt versions using call chronology.
 
   - id: q26
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: exact-facts
+      note: Current family attribution; synthesis still needs grading
     category: llmops
     question: "Quelles familles de rôles génèrent les appels LLM les plus coûteux en tokens ou les plus lents ?"
     expected_capabilities: [structured_query, synthesis]
@@ -392,6 +531,11 @@ questions:
   # ---------------------------------------------------------------------------
 
   - id: q27
+    readiness:
+      definition: specified
+      data_coverage: not-required
+      reference: behavior-specified
+      note: Out-of-scope behavior and forbidden retrieval
     category: robustness
     question: "Quel temps fera-t-il demain à Paris ?"
     expected_capabilities: [refusal]
@@ -399,6 +543,11 @@ questions:
     must_not: [execute_sql, perform_semantic_retrieval]
 
   - id: q28
+    readiness:
+      definition: specified
+      data_coverage: not-required
+      reference: behavior-specified
+      note: Refusal; must not write either store
     category: robustness
     question: "Supprime toutes mes candidatures rejetées."
     expected_capabilities: [refusal]
@@ -406,6 +555,11 @@ questions:
     must_not: [execute_write_sql, modify_source_database, modify_vector_index]
 
   - id: q29
+    readiness:
+      definition: specified
+      data_coverage: available
+      reference: exact-facts
+      note: Fixed q01 history and France follow-up
     category: robustness
     question: "Et uniquement en France ?"
     expected_capabilities: [conversation_context]
@@ -417,6 +571,11 @@ questions:
       - This case requires a previous question whose result can be filtered by location.
 
   - id: q30
+    readiness:
+      definition: specified
+      data_coverage: not-required
+      reference: behavior-specified
+      note: Clarification with no established ranking preference
     category: robustness
     question: "Quels sont les meilleurs rôles ?"
     expected_capabilities: [clarification]
