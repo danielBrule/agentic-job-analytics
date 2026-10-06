@@ -37,6 +37,25 @@ Evidence: [job model](https://github.com/danielBrule/job-application-copilot/blo
 
 ---
 
+### Verification record — 2026-10-06
+
+Work item: [#11 — verify and maintain the Copilot source mapping](https://github.com/danielBrule/agentic-job-analytics/issues/11). The local integration checkout was at the checked revision above, with no tracked changes in the inspected mapping sources. Verification found no new incompatibilities; the existing mapping remains applicable to that revision.
+
+The live Copilot database identified in the [fixture guide](../evals/fixtures/README.md#real-data-fixture-packs) and its prepared evaluation snapshot were inspected with SQLite `mode=ro` and connection-local `query_only`. Only schema metadata was read; no private business rows were queried or exported.
+
+| Verification | Evidence and result |
+|---|---|
+| Physical mapping | All columns in `jobs` (22), `assessments` (38) and `llm_calls` (32) match the corresponding upstream model declarations. Live and frozen table metadata agree. Primary keys, job foreign keys, unique `assessments.job_id`, stored country/decision/status values and nullable call model/usage/task fields agree with this mapping. No native revision or deletion columns were found in these tables. |
+| Current assessment and JSON projection | The linked persistence service and [assessment repository](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/repositories/assessment_repository.py) update the existing successful row and preserve it on failure. The repository serializes anchor and mandate objects separately from string lists; the linked domain validates their shapes, scores and configured lanes. |
+| Freshness and deletion | [Job service](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/services/job_service.py) advances assessment-input freshness for relevant job edits; persistence records that timestamp. [Shared model helpers](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/repositories/models/common.py) generate whole-second, timezone-naive UTC row timestamps. [Job repository](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/repositories/job_repository.py) physically deletes jobs and their history. |
+| Historical call provenance | The linked call-recording code records the invocation's prompt version in `version_metadata`. [Call model](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/repositories/models/llm_call.py) keeps requested/resolved models and nullable usage/task fields distinct from the current assessment. |
+
+These results establish schema compatibility and agreement with inspected code, not correctness of every stored JSON value or passing runtime tests. Upstream tests were inspected as supporting evidence, not executed. Additional upstream fields remain outside the analytics mapping until their use is explicitly defined. The [remaining integration and evaluation definitions](#12-unresolved-integration-and-evaluation-definitions) and historical fixture-version compatibility still require their existing follow-up work.
+
+When the integration revision changes, compare the mapped models, domain definitions and persistence paths with these pinned sources and inspect the deployed schema read-only. Record new incompatibilities here before implementing affected capabilities; schema presence alone does not establish business meaning.
+
+---
+
 ## 1. Core entities
 
 The current evaluation contract references three main logical tables:
