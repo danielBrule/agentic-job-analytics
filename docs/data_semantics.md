@@ -118,7 +118,13 @@ Used for time-series and period filtering.
 
 Current application/process status.
 
-The checked source stores free text, not a controlled status enum. Do not invent a canonical interview/closed vocabulary; define and evaluate any normalization explicitly before using it for those questions.
+The checked source stores free text, not a database/domain status enum. Its [application selector](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/ui/components/job_details.py) offers no status, `Applied`, `1st round`, `2nd round`, `3rd round`, `4th round` and `Rejected`. The [CV service](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/services/cv_service.py) validates those choices, while other source paths can write nonblank free text. Do not assume every stored value belongs to the selector vocabulary.
+
+Verification for #12 on 2026-10-07 found that [dashboard KPIs](https://github.com/danielBrule/job-application-copilot/blob/58c46bbfbed41d469b139cf5db054f7002582085/src/job_application_copilot/services/dashboard_kpis.py) count the four round values as interviews ongoing. This is current process state, not interview history: recording `Rejected` replaces the previous status and does not establish whether an interview happened first. A round value also does not by itself establish whether that round was completed or scheduled. No private business rows were read during this verification.
+
+For q18, the owner approved current interviews on 2026-10-07. Select seed jobs whose status in the pinned snapshot is exactly `1st round`, `2nd round`, `3rd round` or `4th round`. `Applied`, `Rejected`, missing and other free-text values do not establish an ongoing interview for this question; do not infer history or normalize arbitrary text into a round.
+
+Keep seed jobs without usable assessments searchable through their descriptions, but flag unavailable seniority comparisons. Only usable `ASSESSED` rows and reported `seniority_fit` values can establish better seniority alignment between a candidate and an identified seed. A missing score is not zero or proof of improvement. The SQL reference establishes seed membership and available context, not semantic similarity or a final ranking; those require reviewed evaluation labels.
 
 ### `next_action`
 
@@ -132,7 +138,7 @@ Date associated with `next_action`.
 
 Reason an application is closed.
 
-The exact definition of "closed" should eventually be normalised rather than inferred from missing/non-missing text.
+Do not infer an open/closed classification solely from missing/non-missing text. The owner removed q06 on 2026-10-07, so defining that classification is no longer a prerequisite for the current acceptance questions.
 
 ### `job_description`
 
@@ -392,6 +398,10 @@ Assessment of how well the candidate/profile matches the role's technical bar.
 
 Distinct from `technical_bar`, which describes the bar itself.
 
+For q19, the owner approved an inclusive `tech_bar_fit >= 8` threshold on 2026-10-07, replacing similarity to a separately supplied candidate profile. Select current `ASSESSED` rows with `assessments.decision = 'NO_GO'`; the human `jobs.user_decision` is not this recommendation. No Document A access, profile ingestion, profile version selection or vector similarity is required for this question. The stored score is an assessment conclusion based on the inputs used upstream, not an independent reassessment of the candidate.
+
+Use `decision_reason`, `red_flags` and `sustainability_risks` to explain documented nontechnical concerns, with source references. The threshold alone does not prove a nontechnical refusal: distinguish technical, nontechnical and mixed reasons from their actual content, and explicitly report when no nontechnical reason is supported. Null or empty reasons do not justify invented explanations. SQL supplies the exact qualifying jobs and stored evidence; interpreting the reasons requires synthesis and reviewed labels.
+
 ### `seniority_fit`
 
 Assessment of seniority alignment.
@@ -525,7 +535,19 @@ Prefer categories over relying only on free-text exception messages.
 
 ### `task_id` and `task_attempt_id`
 
-Nullable identifiers for the source background task and its execution attempt. A task can produce multiple calls, steps and retries. These identifiers can support run-level accounting, but the evaluation definition of “per assessment” is unresolved. Do not combine unrelated calls with missing task IDs into one invented assessment run.
+Nullable identifiers for the source background task and its execution attempt. A task can produce multiple calls, steps and retries. For q21, the owner approved the logical task as the assessment accounting unit on 2026-10-07. Do not combine unrelated calls with missing task IDs into one invented assessment run.
+
+### Approved q21 accounting
+
+Use only calls with `operation = 'ASSESSMENT'`. For each non-null `task_id` and `resolved_model`, sum reported `total_tokens` across all steps, task attempts, invocation retries and successful or failed calls. A failed-only task with reported usage still contributes; do not restrict the metric to the current successful assessment row or combine different tasks for the same job.
+
+Attribute usage to the actual `resolved_model`. A missing resolved model remains an explicit unknown group, never replaced by `requested_model`. A task that uses multiple models contributes a separate token total for each model. Each model's denominator is the number of contributing task/model groups with complete usage, not all tasks and not the number of invocations. This mean measures the model's contribution per task; it is not the total cost of an entire mixed-model assessment.
+
+A task/model group has complete usage only when every call in that group reports `total_tokens`. Average only those complete groups, preserving reported zero. Incompleteness for one model does not discard another model's complete contribution. Report total, complete and incomplete task/model group counts alongside the mean. If no group has complete usage, the mean is unavailable, not zero; complete-case means may be biased when usage is systematically missing.
+
+Report all call counts, reported/missing usage counts and reported token totals by resolved model. Calls without `task_id` contribute to those call-level totals and separate unassigned-call counts and reported tokens, but never to task counts or means. No reported usage means an unavailable token total, not zero. Do not add cache-read/write usage to `total_tokens` again.
+
+The rationale is to measure consumption for a logical assessment including retry overhead while preserving actual model attribution and missing-data coverage. [Reference SQL](../evals/fixtures/reference_queries.json) and [synthetic execution tests](../tests/test_reference_queries.py) exercise this definition; they do not establish passing runtime-agent tests or refresh historical private results.
 
 ### `version_metadata`
 
@@ -555,11 +577,11 @@ Retrieval and synthesis should preserve this distinction.
 | Topic | Definition still needed | Affected capability |
 |---|---|---|
 | Snapshot lifecycle implementation | Physical deletion and paired snapshots are agreed; select generation storage/publication, capture cadence and cleanup implementation | Snapshot publication and deletion reconciliation |
-| Application closure | Explicit mapping from free-text process state to closed/open; missing `closure_reason` alone is insufficient | q06 |
-| Interview history | A supported definition/source for having had an interview; current free-text status does not guarantee historical stage information | q18 |
-| Candidate technical profile | Canonical source and version of the profile used for similarity, beyond individual assessment anchors | q19 |
-| Tokens per assessment | Whether the unit is a task, attempt or invocation, model attribution, retry inclusion and treatment of unreported usage | q21 |
 
 Resolve these definitions before implementing or fully grading the affected capability. Do not silently infer them or change the golden questions to fit available data. The [fixture guide](../evals/fixtures/README.md#remaining-coverage-and-review) records snapshot coverage and outstanding review; [indexing.md](indexing.md) owns semantic-unit representation.
 
-The repository owner, Daniel Brule, owns the remaining definitions and lifecycle implementation choices through [issue #12 — remaining integration and evaluation definitions](https://github.com/danielBrule/agentic-job-analytics/issues/12). The [initial audit follow-ups](repository_audit.md#definition-follow-ups) record the individual questions and implementation dependencies. The snapshot/physical-deletion direction was approved during #10; the other four definitions remain unresolved.
+The repository owner, Daniel Brule, owns the remaining definitions and lifecycle implementation choices through [issue #12 — remaining integration and evaluation definitions](https://github.com/danielBrule/agentic-job-analytics/issues/12). The [initial audit follow-ups](repository_audit.md#definition-follow-ups) record historical questions and implementation dependencies, not current completion status.
+
+On 2026-10-07, the owner removed q06 as an unwanted question, approved q18 current-round seeds, replaced q19 profile similarity with the stored technical-fit threshold, and approved q21 task/resolved-model accounting above. Golden-question IDs remain stable; q06 is not reused or replaced. Current stages avoid claiming unavailable interview history; using the stored score avoids introducing access to a private candidate document. These are explicit desired-capability changes, not accommodations made solely to pass tests.
+
+The snapshot/physical-deletion direction approved during #10 was reaffirmed. Generation storage/publication, capture cadence and cleanup still require concrete implementation choices under #52; that reaffirmation does not select an unspecified backend or retention period. The question definitions are resolved, while q18 similarity and q19 reason labels remain evaluation work. No upstream schema or private fixture pack was changed.

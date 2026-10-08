@@ -1,6 +1,6 @@
 # Development workflow
 
-The repository currently validates specifications and public evaluation definitions. Runtime code, executable agent/indexing evaluations and deployment will be added later.
+The repository currently validates specifications, public evaluation definitions and q18/q19/q21 reference SQL using synthetic SQLite records. Runtime code, executable agent/indexing evaluations and deployment will be added later.
 
 ## Prerequisites and setup
 
@@ -30,12 +30,12 @@ Subsequent commands prefer the repository's `.venv`. `-Python` also lets you sel
 | `./dev.ps1 help` | List supported targets; this is the default |
 | `./dev.ps1 setup` | Create/reuse `.venv` and install development dependencies |
 | `./dev.ps1 check` | Validate public YAML/JSON, local Markdown links/anchors, acceptance/reference consistency, regression tests and Git whitespace |
-| `./dev.ps1 test` | Run the repository-validator regression tests |
+| `./dev.ps1 test` | Run repository-validator and SQL-reference regression tests |
 | `./dev.ps1 check -BaseRef origin/dev` | Also check whitespace in committed changes between that reference and HEAD |
 
 Failures stop the target and produce a nonzero exit code. Local checks include tracked files and new, non-ignored files. They exclude private snapshots and environments through Git's ignore rules; accidentally tracked private paths fail before their contents are read. Checks validate inline Markdown links and heading anchors, not external website availability.
 
-The tests exercise the development validator. Passing them does not mean the runtime agent or indexing acceptance cases have been implemented. See [evaluation fixtures](../evals/fixtures/README.md) for real-data references and review requirements.
+The tests exercise the development validator and [q18/q19 selection and q21 accounting](../tests/test_reference_queries.py) against synthetic in-memory SQLite data. Passing them does not mean the runtime agent or indexing acceptance cases have been implemented. See [evaluation fixtures](../evals/fixtures/README.md) for real-data references and review requirements.
 
 Golden questions carry planning-only `readiness` tags for definition, data coverage and references, with a dated `readiness_baseline` identifying the fixture scope. Checks require complete tags with known values and a valid baseline date/scope; these tags do not skip acceptance requirements or establish passing results. Update them when reviewing readiness, and record dataset-specific readiness separately in versioned evaluation artifacts. The [initial audit](repository_audit.md) records foundation evidence and follow-up issues.
 

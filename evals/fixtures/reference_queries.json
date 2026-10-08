@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "golden_questions_version": 6,
+  "version": 3,
+  "golden_questions_version": 8,
   "description": "Reference SQL for local, private Copilot evaluation snapshots. These queries define supporting facts; they do not prescribe generated SQL text or answer wording.",
   "numeric_comparison": {
     "integer": "exact",
@@ -58,10 +58,22 @@
       "sql": "SELECT a.job_id, a.id AS assessment_id, item.key AS source_item_index, json_extract(item.value, '$.id') AS dimension_id, json_extract(item.value, '$.description') AS description, json_extract(item.value, '$.importance') AS importance, json_extract(item.value, '$.evidence_strength') AS evidence_strength FROM assessments a, json_each(a.material_mandate_dimensions) item WHERE a.status = 'ASSESSED' AND item.type = 'object' ORDER BY a.job_id, item.key"
     },
     {
-      "id": "q21",
+      "id": "q18",
       "status": "supporting_evidence_only",
-      "purpose": "Per-task/per-requested-model accounting candidate. A task is a possible assessment-run unit; this definition needs confirmation. Report complete-task mean separately from incomplete usage. Requested models do not imply resolved models.",
-      "sql": "WITH per_task AS (SELECT task_id, requested_model, COUNT(*) AS call_count, COUNT(total_tokens) AS reported_usage_calls, SUM(total_tokens) AS reported_tokens, CASE WHEN COUNT(total_tokens) = COUNT(*) THEN SUM(total_tokens) END AS complete_tokens FROM llm_calls WHERE operation = 'ASSESSMENT' GROUP BY task_id, requested_model) SELECT requested_model, COUNT(*) AS task_model_groups, SUM(call_count) AS call_count, SUM(reported_usage_calls) AS reported_usage_calls, SUM(reported_tokens) AS reported_tokens, COUNT(complete_tokens) AS complete_usage_task_groups, AVG(complete_tokens) AS average_tokens_complete_task_groups FROM per_task GROUP BY requested_model ORDER BY requested_model"
+      "purpose": "Approved current-interview seed set: exact 1st through 4th round statuses, not historical interview inference. Preserve jobs without usable assessments and unknown seniority scores; descriptions remain usable for similarity. Semantic relevance and better-seniority comparisons require reviewed labels and usable seed/candidate scores. This query supplies seeds, not final similar-role answers.",
+      "sql": "SELECT j.id AS job_id, j.company, j.job_title, j.application_status, j.job_description, a.id AS assessment_id, a.seniority_fit, a.role_snapshot, a.real_mandate FROM jobs j LEFT JOIN assessments a ON a.job_id = j.id AND a.status = 'ASSESSED' WHERE j.application_status IN ('1st round', '2nd round', '3rd round', '4th round') ORDER BY j.id"
+    },
+    {
+      "id": "q19",
+      "status": "supporting_evidence_only",
+      "purpose": "Approved high-technical-fit NO_GO set from current ASSESSED rows: tech_bar_fit >= 8, attributed to the model decision rather than the human decision. Return stored explanation/risk evidence; a high score does not establish a nontechnical reason. Missing or exclusively technical reasons remain explicit evidence limitations. No candidate-profile input or semantic similarity search is required; nontechnical reason classification needs reviewed labels.",
+      "sql": "SELECT j.id AS job_id, j.company, j.job_title, a.id AS assessment_id, a.decision, a.tech_bar_fit, a.decision_reason, a.red_flags, a.sustainability_risks FROM jobs j JOIN assessments a ON a.job_id = j.id AND a.status = 'ASSESSED' WHERE a.tech_bar_fit >= 8 AND a.decision = 'NO_GO' ORDER BY j.id"
+    },
+    {
+      "id": "q21",
+      "status": "exact_sql_reference",
+      "purpose": "Approved task/resolved-model accounting. Sum all attempts, steps, retries and successful/failed call usage within each task/model group. Average only complete-usage groups among tasks with calls for that model; this is that model's contribution, not an entire mixed-model task total. Retain NULL resolved models as unknown. Calls without task IDs contribute to call totals and unassigned coverage, never task means. NULL usage stays unknown; reported zero is valid. Synthetic execution tests validate this reference; historical private results require refresh.",
+      "sql": "WITH calls AS (SELECT task_id, resolved_model, total_tokens FROM llm_calls WHERE operation = 'ASSESSMENT'), per_task AS (SELECT task_id, resolved_model, CASE WHEN COUNT(total_tokens) = COUNT(*) THEN SUM(total_tokens) END AS complete_tokens FROM calls WHERE task_id IS NOT NULL GROUP BY task_id, resolved_model), task_metrics AS (SELECT resolved_model, COUNT(*) AS task_model_groups, COUNT(complete_tokens) AS complete_usage_task_groups, COUNT(*) - COUNT(complete_tokens) AS incomplete_usage_task_groups, AVG(complete_tokens) AS average_tokens_complete_task_groups FROM per_task GROUP BY resolved_model), call_metrics AS (SELECT resolved_model, COUNT(*) AS call_count, COUNT(total_tokens) AS reported_usage_calls, COUNT(*) - COUNT(total_tokens) AS missing_usage_calls, SUM(total_tokens) AS reported_tokens, SUM(task_id IS NULL) AS unassigned_calls, COUNT(CASE WHEN task_id IS NULL THEN total_tokens END) AS unassigned_reported_usage_calls, SUM(CASE WHEN task_id IS NULL THEN total_tokens END) AS unassigned_reported_tokens FROM calls GROUP BY resolved_model) SELECT c.resolved_model, COALESCE(t.task_model_groups, 0) AS task_model_groups, COALESCE(t.complete_usage_task_groups, 0) AS complete_usage_task_groups, COALESCE(t.incomplete_usage_task_groups, 0) AS incomplete_usage_task_groups, t.average_tokens_complete_task_groups, c.call_count, c.reported_usage_calls, c.missing_usage_calls, c.reported_tokens, c.unassigned_calls, c.unassigned_reported_usage_calls, c.unassigned_reported_tokens FROM call_metrics c LEFT JOIN task_metrics t ON t.resolved_model IS c.resolved_model ORDER BY c.resolved_model"
     },
     {
       "id": "q22",
