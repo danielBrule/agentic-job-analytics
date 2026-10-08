@@ -57,7 +57,7 @@ Usage: ./dev.ps1 <target> [-Python <executable>] [-BaseRef <commit>]
 
 setup  Create .venv and install the pinned development dependency.
 check  Validate public YAML/JSON, Markdown links, references, tests and whitespace.
-test   Run repository-validator regression tests.
+test   Run all tests under tests/, including dev.ps1 regression tests.
 help   Show this help.
 
 BaseRef optionally checks committed changes as well as local/staged whitespace.

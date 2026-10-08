@@ -2,10 +2,10 @@
 
 import json
 from pathlib import Path
-import sqlite3
 import unittest
 
-import yaml
+from support.contracts import load_suite, load_references
+from support.sqlite_fixtures import SyntheticDatabase
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,19 +15,11 @@ class AssessmentTokenReferenceTest(unittest.TestCase):
     """Check q21 facts independently of generated SQL or model answers."""
 
     def setUp(self) -> None:
-        references = json.loads((ROOT / "evals/fixtures/reference_queries.json").read_text(encoding="utf-8"))
-        self.reference = next(reference for reference in references["references"] if reference["id"] == "q21")
-        self.database = sqlite3.connect(":memory:")
-        self.addCleanup(self.database.close)
-        self.database.row_factory = sqlite3.Row
-        self.database.execute("""
-            CREATE TABLE llm_calls (
-                id INTEGER PRIMARY KEY, task_id INTEGER, task_attempt_id INTEGER,
-                job_id INTEGER, operation TEXT, requested_model TEXT, resolved_model TEXT,
-                total_tokens INTEGER, status TEXT, retry_number INTEGER,
-                pipeline_step TEXT, cache_read_input_tokens INTEGER
-            )
-        """)
+        golden = load_suite(ROOT / "evals/golden_questions.yaml", "questions")
+        self.reference = load_references(ROOT / "evals/fixtures/reference_queries.json", golden)["q21"]
+        self.fixture = SyntheticDatabase()
+        self.addCleanup(self.fixture.close)
+        self.database = self.fixture.connection
 
     def call(
         self, task_id: int | None, tokens: int | None, *, model: str | None = "actual",
@@ -35,12 +27,13 @@ class AssessmentTokenReferenceTest(unittest.TestCase):
         status: str = "SUCCEEDED", retry: int = 0, operation: str = "ASSESSMENT",
         step: str = "assessment", cache_read: int = 0,
     ) -> None:
-        self.database.execute(
-            "INSERT INTO llm_calls (task_id, task_attempt_id, job_id, operation, requested_model, "
-            "resolved_model, total_tokens, status, retry_number, pipeline_step, cache_read_input_tokens) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (task_id, attempt, job, operation, requested, model, tokens, status, retry, step, cache_read),
-        )
+        if not self.database.execute("SELECT 1 FROM jobs WHERE id = ?", (job,)).fetchone():
+            self.fixture.job(job)
+        identifier = self.database.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM llm_calls").fetchone()[0]
+        self.fixture.call(identifier, task_id=task_id, total_tokens=tokens, resolved_model=model,
+                          requested_model=requested, task_attempt_id=attempt, job_id=job,
+                          status=status, retry_number=retry, operation=operation,
+                          pipeline_step=step, cache_read_input_tokens=cache_read)
 
     def results(self) -> dict[str | None, dict]:
         # Restrict execution after fixture setup; these are reference reads, not runtime safety tests.
@@ -145,29 +138,14 @@ class ApplicationReferenceTest(unittest.TestCase):
     """Check q18 seeds and q19 evidence without a profile or semantic service."""
 
     def setUp(self) -> None:
-        references = json.loads((ROOT / "evals/fixtures/reference_queries.json").read_text(encoding="utf-8"))
-        self.references = {reference["id"]: reference for reference in references["references"]}
-        self.database = sqlite3.connect(":memory:")
-        self.addCleanup(self.database.close)
-        self.database.row_factory = sqlite3.Row
-        self.database.executescript("""
-            CREATE TABLE jobs (
-                id INTEGER PRIMARY KEY, company TEXT, job_title TEXT,
-                application_status TEXT, user_decision TEXT, job_description TEXT
-            );
-            CREATE TABLE assessments (
-                id INTEGER PRIMARY KEY, job_id INTEGER UNIQUE REFERENCES jobs(id), status TEXT,
-                decision TEXT, tech_bar_fit INTEGER, seniority_fit INTEGER, fit_score INTEGER,
-                decision_reason TEXT, red_flags TEXT, sustainability_risks TEXT,
-                role_snapshot TEXT, real_mandate TEXT
-            );
-        """)
+        golden = load_suite(ROOT / "evals/golden_questions.yaml", "questions")
+        self.references = load_references(ROOT / "evals/fixtures/reference_queries.json", golden)
+        self.fixture = SyntheticDatabase()
+        self.addCleanup(self.fixture.close)
+        self.database = self.fixture.connection
 
     def job(self, identifier: int, stage: str | None = None, *, human_decision: str = "UNDECIDED") -> None:
-        self.database.execute(
-            "INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?)",
-            (identifier, "Synthetic employer", "Synthetic role", stage, human_decision, "Build data tools"),
-        )
+        self.fixture.job(identifier, application_status=stage, user_decision=human_decision)
 
     def assessment(
         self, job: int, *, status: str = "ASSESSED", decision: str = "NO_GO",
@@ -175,11 +153,9 @@ class ApplicationReferenceTest(unittest.TestCase):
         reason: str | None = "Frequent travel", flags: str | None = '["Travel"]',
         risks: str | None = '["Weekly travel"]',
     ) -> None:
-        self.database.execute(
-            "INSERT INTO assessments VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (100 + job, job, status, decision, technical, seniority, 10, reason, flags, risks,
-             "Technical delivery role", "Build a capability"),
-        )
+        self.fixture.assessment(100 + job, job, status=status, decision=decision,
+                                tech_bar_fit=technical, seniority_fit=seniority,
+                                decision_reason=reason, red_flags=flags, sustainability_risks=risks)
 
     def results(self, question: str) -> dict[int, dict]:
         self.database.execute("PRAGMA query_only = ON")
@@ -250,8 +226,8 @@ class QuestionScopeTest(unittest.TestCase):
     """Preserve stable question IDs when the owner removes a capability."""
 
     def test_q06_is_removed_without_renumbering_remaining_questions(self) -> None:
-        golden = yaml.safe_load((ROOT / "evals/golden_questions.yaml").read_text(encoding="utf-8"))
-        identifiers = {question["id"] for question in golden["questions"]}
+        golden = load_suite(ROOT / "evals/golden_questions.yaml", "questions")
+        identifiers = set(golden.by_id)
         self.assertEqual(identifiers, {f"q{number:02}" for number in range(1, 31)} - {"q06"})
 
 
