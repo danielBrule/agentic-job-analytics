@@ -1,4 +1,4 @@
-version: 6
+version: 8
 
 description: >
   Golden evaluation questions for Agentic Job Analytics.
@@ -6,8 +6,8 @@ description: >
   Structured and semantic retrieval may execute sequentially or in parallel.
 
 readiness_baseline:
-  date: "2026-10-06"
-  data_scope: initial_prepared_copilot_fixture_pack
+  date: "2026-10-07"
+  data_scope: initial_prepared_copilot_fixture_pack_and_synthetic_q18_q19_q21_reference_tests
   runtime_and_evaluators: missing
   purpose: Planning metadata only; pending cases are not passing tests.
 
@@ -164,23 +164,6 @@ questions:
     expected_constraints:
       - user_decision == DO_NOT_PURSUE
       - fit_score >= 8
-
-  - id: q06
-    readiness:
-      definition: decision-needed
-      data_coverage: synthetic-needed
-      reference: review-needed
-      note: Closure mapping and overdue/open/closed examples
-    category: structured_analytics
-    question: "Quels jobs ont une next_action_date passée et ne sont pas clôturés ?"
-    expected_capabilities: [structured_query]
-    expected_structured_sources:
-      tables: [jobs]
-      fields: [company, job_title, application_status, next_action, next_action_date, closure_reason]
-    expected_behavior: filter
-    notes:
-      - The exact definition of a closed application should be normalized in the data model.
-
 
   # ---------------------------------------------------------------------------
   # Structured data with qualitative / JSON analysis
@@ -375,12 +358,12 @@ questions:
 
   - id: q18
     readiness:
-      definition: decision-needed
+      definition: specified
       data_coverage: synthetic-needed
-      reference: review-needed
-      note: Interview-history source and positive examples
+      reference: supporting-only
+      note: Current-round seed SQL tested; semantic comparison fixtures and labels still needed
     category: multi_capability
-    question: "Quels rôles ressemblent aux postes pour lesquels j’ai eu des entretiens, mais avec une meilleure adéquation de séniorité ?"
+    question: "Quels rôles ressemblent aux postes pour lesquels je suis actuellement en entretien, mais avec une meilleure adéquation de séniorité ?"
     expected_capabilities: [structured_query, semantic_retrieval, synthesis]
     expected_structured_sources:
       tables: [jobs, assessments]
@@ -388,25 +371,38 @@ questions:
     expected_semantic_evidence:
       fields: [job_description, role_snapshot, real_mandate]
     expected_behavior: structured_seed_plus_semantic_comparison
+    expected_constraints:
+      - seed_application_status_in_current_interview_rounds
+      - rejected_and_unknown_statuses_do_not_establish_current_interviews
+      - missing_seniority_scores_do_not_establish_better_fit
     notes:
-      - Interview stage should eventually be normalized instead of inferred from free-text status.
+      - Seed statuses are exactly 1st round, 2nd round, 3rd round and 4th round in the pinned snapshot.
+      - Current stage does not establish interview completion or historical interviews before rejection.
+      - Preserve unassessed interview seeds for description similarity, but flag missing seniority comparisons.
 
   - id: q19
     readiness:
-      definition: decision-needed
-      data_coverage: profile-needed
-      reference: review-needed
-      note: Canonical technical profile/version; relevance labels
-    category: multi_capability
-    question: "Quels rôles proches de mon profil technique ont été classés NO_GO, et pour quelles raisons non techniques ?"
-    expected_capabilities: [semantic_retrieval, structured_query, synthesis]
+      definition: specified
+      data_coverage: available
+      reference: supporting-only
+      note: High-technical-fit NO_GO SQL tested; nontechnical reason labels need review
+    category: qualitative_analysis
+    question: "Quels postes avec tech_bar_fit supérieur ou égal à 8 ont été classés NO_GO, et quelles raisons non techniques sont documentées ?"
+    expected_capabilities: [structured_query, synthesis]
     expected_structured_sources:
       tables: [jobs, assessments]
       fields: [decision, decision_reason, tech_bar_fit, company, job_title, red_flags, sustainability_risks]
-    expected_semantic_evidence:
-      fields: [job_description, role_snapshot, real_mandate]
-      concepts: [technical profile similarity]
-    expected_behavior: semantic_scope_plus_structured_explanation
+    expected_behavior: structured_filter_plus_explanation
+    expected_constraints:
+      - tech_bar_fit >= 8
+      - assessments.decision == NO_GO
+      - usable_assessment_status == ASSESSED
+      - nontechnical_reasons_require_documented_evidence
+      - missing_reasons_do_not_establish_nontechnical_rejection
+    notes:
+      - Use the stored assessment score; no Document A or other candidate-profile input is required.
+      - High technical fit is an assessment conclusion, not an independent similarity measurement.
+      - A high score does not make every decision reason nontechnical; preserve mixed or insufficient evidence.
 
   - id: q20
     readiness:
@@ -433,19 +429,28 @@ questions:
 
   - id: q21
     readiness:
-      definition: decision-needed
+      definition: specified
       data_coverage: available
-      reference: supporting-only
-      note: Accounting unit and model attribution unresolved
+      reference: exact-facts
+      note: Approved task/resolved-model accounting; synthetic SQL tests, private pack still needs refresh
     category: llmops
     question: "Quel est le nombre moyen de tokens consommés par assessment et par modèle ?"
     expected_capabilities: [structured_query]
     expected_structured_sources:
       tables: [llm_calls]
-      fields: [operation, resolved_model, total_tokens, job_id]
+      fields: [operation, resolved_model, total_tokens, task_id, task_attempt_id, job_id]
     expected_behavior: aggregate
     expected_constraints:
       - operation == ASSESSMENT
+      - assessment_accounting_unit == task_id
+      - model_attribution == resolved_model
+      - include_all_attempts_retries_and_failed_call_usage
+      - average_complete_usage_task_model_groups_only
+      - per_model_denominator_is_tasks_with_calls_for_that_model
+      - report_incomplete_usage_and_unassigned_calls_separately
+      - missing_task_ids_do_not_form_assessment_groups
+      - missing_resolved_model_remains_unknown
+      - missing_usage_is_not_zero
 
   - id: q22
     readiness:
