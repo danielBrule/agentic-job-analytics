@@ -42,6 +42,29 @@ class RepositoryChecksTest(unittest.TestCase):
         with self.assertRaisesRegex(CheckFailure, "private"):
             public_files(self.root)
 
+    def test_private_boundary_artifacts_fail_before_parsing(self) -> None:
+        for name in ("logs/run.json", "traces/run.json", "exports/dataset.json",
+                     "checkpoints/thread.json", "outside.db-journal", "outside.sqlite-wal",
+                     "outside.sqlite3-shm", "outside.log"):
+            with self.subTest(name=name):
+                path = self.write(name, "{invalid private content")
+                with self.assertRaisesRegex(CheckFailure, "private"):
+                    public_files(self.root)
+                path.unlink()
+
+    def test_repository_ignore_rules_cover_private_artifacts(self) -> None:
+        self.write(".gitignore", (Path(__file__).resolve().parents[1] / ".gitignore").read_text(encoding="utf-8"))
+        for name in ("logs/run.json", "traces/run.json", "exports/dataset.json",
+                     "checkpoints/thread.json", "outside.db", "outside.sqlite", "outside.sqlite3",
+                     "outside.db-wal", "outside.db-shm", "outside.db-journal",
+                     "outside.sqlite-wal", "outside.sqlite3-shm", "outside.log"):
+            with self.subTest(name=name):
+                self.write(name, "private synthetic artifact")
+                result = subprocess.run(["git", "-C", str(self.root), "check-ignore", "--quiet", name])
+                self.assertEqual(result.returncode, 0)
+        self.write("evals/public.json", "{}")
+        self.assertIn(self.root / "evals/public.json", public_files(self.root))
+
     def test_new_untracked_documents_are_checked(self) -> None:
         self.write("README.md", "[missing](absent.md)\n")
         with self.assertRaisesRegex(CheckFailure, "absent.md"):

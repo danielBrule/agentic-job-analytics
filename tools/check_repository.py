@@ -68,9 +68,12 @@ def public_files(root: Path) -> list[Path]:
         relative = Path(name)
         lowered = relative.name.lower()
         if (
-            relative.parts[0].lower() in {"data", ".venv"}
+            relative.parts[0].lower() in {"data", ".venv", "logs", "traces", "exports", "checkpoints"}
             or (lowered.startswith(".env") and lowered != ".env.example")
-            or lowered.endswith((".env", ".db", ".sqlite", ".sqlite3", ".db-wal", ".db-shm"))
+            or lowered.endswith((".env", ".log", ".db", ".sqlite", ".sqlite3",
+                                 ".db-wal", ".db-shm", ".db-journal",
+                                 ".sqlite-wal", ".sqlite-shm", ".sqlite-journal",
+                                 ".sqlite3-wal", ".sqlite3-shm", ".sqlite3-journal"))
         ):
             raise CheckFailure(f"Git includes private data that must remain ignored and untracked: {name}")
         path = root / relative
