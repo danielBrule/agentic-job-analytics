@@ -1,6 +1,6 @@
 # Development workflow
 
-The repository currently validates specifications, public evaluation definitions, shared contract-test helpers and reference SQL using synthetic SQLite records. Runtime code, executable agent/indexing evaluations and deployment will be added later.
+The repository currently validates specifications, public evaluation definitions, shared contract-test helpers, privacy boundary helpers and reference SQL using synthetic SQLite records. Runtime orchestration, executable agent/indexing evaluations and deployment will be added later.
 
 ## Prerequisites and setup
 
@@ -38,6 +38,10 @@ Failures stop the target and produce a nonzero exit code. Local checks include t
 The tests exercise the development validator, [shared contract harness](../tests/test_contract_harness.py) and [q18/q19 selection and q21 accounting](../tests/test_reference_queries.py) against synthetic in-memory SQLite data. The harness loads both acceptance suites, supplies deterministic fixtures and service doubles, and executes all public reference queries with targeted fact assertions. Passing these tests does not mean the runtime agent or indexing acceptance cases have been implemented. See [evaluation fixtures](../evals/fixtures/README.md#shared-offline-test-helpers) for helper usage, controlled transitions and explicit read-only reuse of private snapshots. Public CI uses only synthetic inputs.
 
 Golden questions carry planning-only `readiness` tags for definition, data coverage and references, with a dated `readiness_baseline` identifying the fixture scope. Checks require complete tags with known values and a valid baseline date/scope; these tags do not skip acceptance requirements or establish passing results. Update them when reviewing readiness, and record dataset-specific readiness separately in versioned evaluation artifacts. The [initial audit](repository_audit.md) records foundation evidence and follow-up issues.
+
+## Shared privacy foundation
+
+The root [agentic_job_analytics](../agentic_job_analytics/__init__.py) package currently contains standard-library privacy helpers, not a runnable agent. Run targeted checks with `.venv/Scripts/python.exe -m unittest discover -s tests -p test_privacy.py -v` on Windows (use `.venv/bin/python` on Linux/macOS), and run `./dev.ps1 check` for the full shared validation. Keep generated private artifacts in ignored `data/`, `logs/`, `traces/`, `exports/` or `checkpoints/`. The validator rejects accidentally exposed artifacts before parsing them. See [SECURITY.md](../SECURITY.md#shared-boundary-controls) for classifications, destination grants, safe diagnostics and remaining integration responsibilities. Tests require only synthetic inputs and make no external service calls.
 
 ## Branches and CI
 

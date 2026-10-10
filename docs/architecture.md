@@ -90,6 +90,8 @@ These task keys are independently configurable responsibilities, not separate au
 
 ## External service boundaries
 
+The shared privacy foundation is implemented in [privacy.py](../agentic_job_analytics/privacy.py); [SECURITY.md](../SECURITY.md#shared-boundary-controls) owns its policy and integration requirements. Before any content sink, application code checks exact boundary/destination/classification permission, projects necessary fields and redacts credentials. Logs and traces use sanitized operational metadata by default, while private local conversation state remains separate. Provider retries, correction feedback, fallback and model-based evaluators use the same boundary checks. Neither model output nor retrieved evidence can change grants or tool authorization. These helpers are not production adapters or a wrapper around LangGraph/LangSmith; integrate and test them at each actual sink as it is introduced.
+
 Use small ports and adapters around external infrastructure and models. Configuration selects implementations; graph nodes depend on interfaces rather than importing provider-specific clients.
 
 | Boundary | Confirmed direction | Potential implementations or future substitutions |
